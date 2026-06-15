@@ -1,13 +1,13 @@
 import type { Plugin } from "@opencode-ai/plugin";
-import type { FilePart } from "@opencode-ai/sdk";
+import type { FilePart, Part } from "@opencode-ai/sdk";
 import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { resolveConfig } from "./config";
 import { makeCapabilityLookup } from "./capabilities";
 import {
   transcribeMessages,
-  toolImageAttachments,
-  isTranscribableImage,
+  hasTranscriptionTargets,
+  messageText,
   getActiveModel,
   type TransformMessage,
 } from "./transform";
@@ -57,11 +57,7 @@ export const VisionFallback: Plugin = async (input, options) => {
         },
       });
       if (res.error || !res.data) throw new Error("vision session prompt failed");
-      return (res.data.parts as Array<{ type: string; text?: string }>)
-        .filter((p) => p.type === "text")
-        .map((p) => p.text!)
-        .join("\n")
-        .trim();
+      return messageText(res.data.parts as Part[]);
     } finally {
       internalSessions.delete(sid);
       await input.client.session.delete({ path: { id: sid } }).catch(() => {});
@@ -76,16 +72,7 @@ export const VisionFallback: Plugin = async (input, options) => {
       const sessionID = messages.find((m) => m.info?.sessionID)?.info.sessionID;
       if (sessionID && internalSessions.has(sessionID)) return;
 
-      if (
-        !messages.some((m) =>
-          m.parts.some(
-            (p) =>
-              isTranscribableImage(p, cfg.mimePrefixes) ||
-              toolImageAttachments(p, cfg.mimePrefixes).length > 0,
-          ),
-        )
-      )
-        return;
+      if (!hasTranscriptionTargets(messages, cfg.mimePrefixes)) return;
 
       const model = getActiveModel(messages);
       if (!model) return;

@@ -6,13 +6,6 @@ function matchesMime(a: FilePart, mimePrefixes: string[]): boolean {
   return mimePrefixes.some((p) => a.mime.startsWith(p));
 }
 
-export function toolImageAttachments(part: Part, mimePrefixes: string[]): FilePart[] {
-  if (part.type !== "tool" || part.state.status !== "completed") return [];
-  const attachments = part.state.attachments;
-  if (!attachments) return [];
-  return attachments.filter((a) => matchesMime(a, mimePrefixes));
-}
-
 async function describeOrError(file: FilePart, userText: string, describe: DescribeFn): Promise<string> {
   return describe(file, userText).catch(
     (e: unknown) =>
@@ -60,33 +53,65 @@ function formatToolDescriptions(images: FilePart[], cache: Map<string, string>, 
 type FileTarget = { kind: "file"; parts: Part[]; index: number; image: FilePart; userText: string };
 type ToolTarget = { kind: "tool"; state: ToolStateCompleted; images: FilePart[]; rest: FilePart[]; userText: string };
 
+function splitToolAttachments(
+  part: Part,
+  mimePrefixes: string[],
+): { state: ToolStateCompleted; images: FilePart[]; rest: FilePart[] } | undefined {
+  if (part.type !== "tool" || part.state.status !== "completed") return undefined;
+  const attachments = part.state.attachments;
+  if (!attachments || attachments.length === 0) return undefined;
+
+  const images: FilePart[] = [];
+  const rest: FilePart[] = [];
+  for (const attachment of attachments) {
+    if (matchesMime(attachment, mimePrefixes)) images.push(attachment);
+    else rest.push(attachment);
+  }
+  if (images.length === 0) return undefined;
+  return { state: part.state, images, rest };
+}
+
+function collectTranscriptionTargets(
+  messages: TransformMessage[],
+  mimePrefixes: string[],
+): Array<FileTarget | ToolTarget> {
+  const targets: Array<FileTarget | ToolTarget> = [];
+  let currentUserText = "";
+
+  for (const msg of messages) {
+    let msgUserText: string | undefined;
+    const getMsgUserText = () => (msgUserText ??= messageText(msg.parts));
+    if (msg.info.role === "user") currentUserText = getMsgUserText();
+
+    msg.parts.forEach((part, index) => {
+      if (isTranscribableImage(part, mimePrefixes)) {
+        targets.push({ kind: "file", parts: msg.parts, index, image: part, userText: getMsgUserText() });
+        return;
+      }
+      const split = splitToolAttachments(part, mimePrefixes);
+      if (!split) return;
+      targets.push({ kind: "tool", ...split, userText: currentUserText });
+    });
+  }
+
+  return targets;
+}
+
+export function hasTranscriptionTargets(messages: TransformMessage[], mimePrefixes: string[]): boolean {
+  return collectTranscriptionTargets(messages, mimePrefixes).length > 0;
+}
+
+export function toolImageAttachments(part: Part, mimePrefixes: string[]): FilePart[] {
+  return splitToolAttachments(part, mimePrefixes)?.images ?? [];
+}
+
 export async function transcribeMessages(
   messages: TransformMessage[],
   describe: DescribeFn,
   mimePrefixes: string[],
   cache: Map<string, string>,
 ): Promise<number> {
-  const targets: Array<FileTarget | ToolTarget> = [];
-  let currentUserText = "";
-
-  for (const msg of messages) {
-    const msgUserText = messageText(msg.parts);
-    if (msg.info.role === "user") currentUserText = msgUserText;
-    msg.parts.forEach((part, index) => {
-      if (isTranscribableImage(part, mimePrefixes)) {
-        targets.push({ kind: "file", parts: msg.parts, index, image: part, userText: msgUserText });
-        return;
-      }
-      if (part.type !== "tool" || part.state.status !== "completed") return;
-      const state = part.state;
-      const attachments = state.attachments;
-      if (!attachments || attachments.length === 0) return;
-      const images = attachments.filter((a) => matchesMime(a, mimePrefixes));
-      if (images.length === 0) return;
-      const rest = attachments.filter((a) => !matchesMime(a, mimePrefixes));
-      targets.push({ kind: "tool", state, images, rest, userText: currentUserText });
-    });
-  }
+  const targets = collectTranscriptionTargets(messages, mimePrefixes);
   if (targets.length === 0) return 0;
 
   const pending = new Map<string, { img: FilePart; userText: string }>();

@@ -91,6 +91,29 @@ function buildInputWithDirectory(fakeClient: Record<string, unknown>, directory:
   };
 }
 
+function makePromptCaptureClient(
+  onPrompt: (args: any) => void,
+  sessionId = "ses_prompt",
+) {
+  return {
+    provider: { list: async () => ({ data: providerFixture }) },
+    session: {
+      create: async () => ({ data: { id: sessionId } }),
+      prompt: async (args: any) => {
+        onPrompt(args);
+        return {
+          data: {
+            info: {},
+            parts: [{ type: "text", text: "described" }],
+          },
+        };
+      },
+      delete: async () => ({ data: true }),
+    },
+    app: { log: async () => {} },
+  };
+}
+
 test("non-vision model with image: transcribes via vision model", async () => {
   let createCount = 0;
   let deleteCount = 0;
@@ -312,23 +335,9 @@ test("promptFile loads markdown prompt for vision session", async () => {
 
   let capturedSystem: unknown;
 
-  const fakeClient = {
-    provider: { list: async () => ({ data: providerFixture }) },
-    session: {
-      create: async () => ({ data: { id: "ses_prompt_file" } }),
-      prompt: async (args: any) => {
-        capturedSystem = args.body?.system;
-        return {
-          data: {
-            info: {},
-            parts: [{ type: "text", text: "described" }],
-          },
-        };
-      },
-      delete: async () => ({ data: true }),
-    },
-    app: { log: async () => {} },
-  };
+  const fakeClient = makePromptCaptureClient((args) => {
+    capturedSystem = args.body?.system;
+  }, "ses_prompt_file");
 
   try {
     const hooks = await VisionFallback(buildInputWithDirectory(fakeClient, directory), {
@@ -618,23 +627,9 @@ test("transform: configured model guard skips transcription", async () => {
 test("vision prompt includes the user's accompanying message", async () => {
   let capturedParts: unknown;
 
-  const fakeClient = {
-    provider: { list: async () => ({ data: providerFixture }) },
-    session: {
-      create: async () => ({ data: { id: "ses_prompt_text" } }),
-      prompt: async (args: any) => {
-        capturedParts = args.body?.parts;
-        return {
-          data: {
-            info: {},
-            parts: [{ type: "text", text: "described" }],
-          },
-        };
-      },
-      delete: async () => ({ data: true }),
-    },
-    app: { log: async () => {} },
-  };
+  const fakeClient = makePromptCaptureClient((args) => {
+    capturedParts = args.body?.parts;
+  }, "ses_prompt_text");
 
   const hooks = await VisionFallback(buildInput(fakeClient), {
     model: "openai/gpt-4o",
