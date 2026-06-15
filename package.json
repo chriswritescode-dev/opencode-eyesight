@@ -1,6 +1,6 @@
 {
   "name": "opencode-eyesight",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "OpenCode plugin that lets text-only models work with pasted images through a vision-capable model.",
   "type": "module",
   "main": "./dist/index.js",
