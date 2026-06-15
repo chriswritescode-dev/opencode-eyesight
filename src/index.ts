@@ -1,11 +1,15 @@
 import type { Plugin } from "@opencode-ai/plugin";
 import type { FilePart } from "@opencode-ai/sdk";
+import { readFile } from "node:fs/promises";
+import { isAbsolute, resolve } from "node:path";
 import { resolveConfig } from "./config";
 import { makeCapabilityLookup } from "./capabilities";
 import { transcribeImageParts } from "./transform";
 
 export const VisionFallback: Plugin = async (input, options) => {
-  const cfg = resolveConfig(options, process.env);
+  const cfg = await resolveConfig(options, process.env, async (path) =>
+    readFile(isAbsolute(path) ? path : resolve(input.directory, path), "utf8"),
+  );
   if (!cfg) {
     input.client.app
       .log({

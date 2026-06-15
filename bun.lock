@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "opencode-vision-fallback",
+      "name": "opencode-eyesight",
       "devDependencies": {
         "@opencode-ai/plugin": "latest",
         "@opencode-ai/sdk": "latest",

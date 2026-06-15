@@ -1,6 +1,9 @@
 import { test, expect } from "bun:test";
 import { VisionFallback } from "../src/index";
 import type { Part, FilePart, TextPart } from "@opencode-ai/sdk";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 let nextPartId = 1;
 
@@ -55,11 +58,15 @@ const providerFixture = {
 };
 
 function buildInput(fakeClient: Record<string, unknown>) {
+  return buildInputWithDirectory(fakeClient, "/tmp");
+}
+
+function buildInputWithDirectory(fakeClient: Record<string, unknown>, directory: string) {
   return {
     client: fakeClient as any,
     project: {} as any,
-    directory: "/tmp",
-    worktree: "/tmp",
+    directory,
+    worktree: directory,
     experimental_workspace: { register() {} },
     serverUrl: new URL("http://localhost:4096"),
     $: (() => {}) as any,
@@ -295,4 +302,46 @@ test("describe session lifecycle: create, prompt, delete each called once", asyn
   expect(promptCalled).toBe(true);
   expect((output.parts[0] as unknown as TextPart).type).toBe("text");
   expect((output.parts[0] as unknown as TextPart).text).toBe("described");
+});
+
+test("promptFile loads markdown prompt for vision session", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "opencode-eyesight-"));
+  await writeFile(join(directory, "prompt.md"), "\nDescribe using markdown file.\n");
+
+  let capturedSystem: unknown;
+
+  const fakeClient = {
+    provider: { list: async () => ({ data: providerFixture }) },
+    session: {
+      create: async () => ({ data: { id: "ses_prompt_file" } }),
+      prompt: async (args: any) => {
+        capturedSystem = args.body?.system;
+        return {
+          data: {
+            info: {},
+            parts: [{ type: "text", text: "described" }],
+          },
+        };
+      },
+      delete: async () => ({ data: true }),
+    },
+    app: { log: async () => {} },
+  };
+
+  try {
+    const hooks = await VisionFallback(buildInputWithDirectory(fakeClient, directory), {
+      model: "openai/gpt-4o",
+      promptFile: "prompt.md",
+    });
+
+    const output = { message: {} as any, parts: [makeFilePart()] };
+    await hooks["chat.message"]!(
+      { sessionID: "ses_user", model: { providerID: "zai", modelID: "glm-4.6" } },
+      output as any,
+    );
+
+    expect(capturedSystem).toBe("Describe using markdown file.");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

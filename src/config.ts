@@ -5,6 +5,8 @@ export interface VisionFallbackConfig {
   mimePrefixes: string[];
 }
 
+export type PromptFileReader = (path: string) => Promise<string>;
+
 export const DEFAULT_PROMPT = `Describe this image thoroughly. Transcribe all visible text verbatim, identify UI elements (buttons, dialogs, input fields, menus), list objects and people, describe layout and spatial relationships, and state the overall purpose or context. Be concise but complete so a blind user can fully understand what is shown.`;
 
 export function parseModel(
@@ -18,10 +20,11 @@ export function parseModel(
   return { providerID, modelID };
 }
 
-export function resolveConfig(
+export async function resolveConfig(
   options: Record<string, unknown> | undefined,
   env: Record<string, string | undefined>,
-): VisionFallbackConfig | undefined {
+  readPromptFile?: PromptFileReader,
+): Promise<VisionFallbackConfig | undefined> {
   const modelStr =
     typeof options?.model === "string"
       ? options.model
@@ -32,14 +35,31 @@ export function resolveConfig(
   const parsed = parseModel(modelStr);
   if (!parsed) return undefined;
 
-  const prompt =
-    typeof options?.prompt === "string"
-      ? options.prompt
-      : env.OPENCODE_VISION_FALLBACK_PROMPT ?? DEFAULT_PROMPT;
+  const prompt = await resolvePrompt(options, env, readPromptFile);
 
   return {
     ...parsed,
     prompt,
     mimePrefixes: ["image/"],
   };
+}
+
+async function resolvePrompt(
+  options: Record<string, unknown> | undefined,
+  env: Record<string, string | undefined>,
+  readPromptFile?: PromptFileReader,
+): Promise<string> {
+  if (typeof options?.prompt === "string") return options.prompt;
+
+  const promptFile =
+    typeof options?.promptFile === "string"
+      ? options.promptFile
+      : env.OPENCODE_VISION_FALLBACK_PROMPT_FILE;
+
+  if (promptFile && readPromptFile) {
+    const prompt = (await readPromptFile(promptFile)).trim();
+    if (prompt.length > 0) return prompt;
+  }
+
+  return env.OPENCODE_VISION_FALLBACK_PROMPT ?? DEFAULT_PROMPT;
 }

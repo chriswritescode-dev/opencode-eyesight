@@ -1,13 +1,18 @@
 {
-  "name": "opencode-vision-fallback",
+  "name": "opencode-eyesight",
   "version": "0.1.0",
-  "private": true,
+  "description": "OpenCode plugin that lets text-only models work with pasted images through a vision-capable model.",
   "type": "module",
-  "main": "./src/index.ts",
+  "main": "./dist/index.js",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./dist/index.js"
   },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
+    "build": "bun build ./src/index.ts --outdir ./dist --target bun --format esm --external @opencode-ai/plugin --external @opencode-ai/sdk",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
