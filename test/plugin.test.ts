@@ -1,11 +1,29 @@
 import { test, expect } from "bun:test";
 import { VisionFallback } from "../src/index";
-import type { Part, FilePart, TextPart } from "@opencode-ai/sdk";
+import type { Part, FilePart, TextPart, UserMessage, AssistantMessage, ToolPart, Message } from "@opencode-ai/sdk";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 let nextPartId = 1;
+
+function makeUserMsgParts(
+  parts: Part[],
+  model?: { providerID: string; modelID: string },
+  sessionID = "ses_user",
+): { info: Message; parts: Part[] } {
+  return {
+    info: {
+      id: "user-1",
+      sessionID,
+      role: "user",
+      time: { created: Date.now() },
+      agent: "default",
+      model: model ?? { providerID: "zai", modelID: "glm-4.6" },
+    } as UserMessage,
+    parts,
+  };
+}
 
 function makeFilePart(overrides?: Partial<FilePart>): FilePart {
   const id = String(nextPartId++);
@@ -105,15 +123,13 @@ test("non-vision model with image: transcribes via vision model", async () => {
   const hooks = await VisionFallback(buildInput(fakeClient), {
     model: "openai/gpt-4o",
   });
-  const output = { message: {} as any, parts: [makeFilePart(), makeTextPart()] };
+  const msg = makeUserMsgParts([makeFilePart(), makeTextPart()]);
+  const output = { messages: [msg] };
 
-  await hooks["chat.message"]!(
-    { sessionID: "ses_user", model: { providerID: "zai", modelID: "glm-4.6" } },
-    output as any,
-  );
+  await hooks["experimental.chat.messages.transform"]!({}, output as any);
 
-  expect(output.parts).toHaveLength(2);
-  const replacement = output.parts[0] as TextPart;
+  expect(msg.parts).toHaveLength(2);
+  const replacement = msg.parts[0] as TextPart;
   expect(replacement.type).toBe("text");
   expect(replacement.text).toBe("a red square on white");
   expect(replacement.id).toBeDefined();
@@ -145,20 +161,15 @@ test("vision-capable model: parts untouched, no vision session created", async (
     model: "openai/gpt-4o",
   });
   const image = makeFilePart();
-  const output = { message: {} as any, parts: [image] };
+  const msg = makeUserMsgParts([image], { providerID: "anthropic", modelID: "claude-3" });
+  const output = { messages: [msg] };
 
-  await hooks["chat.message"]!(
-    {
-      sessionID: "ses_user",
-      model: { providerID: "anthropic", modelID: "claude-3" },
-    },
-    output as any,
-  );
+  await hooks["experimental.chat.messages.transform"]!({}, output as any);
 
   expect(sessionCreateCount).toBe(0);
-  expect(output.parts).toHaveLength(1);
-  expect((output.parts[0] as FilePart).type).toBe("file");
-  expect((output.parts[0] as FilePart).mime).toBe("image/png");
+  expect(msg.parts).toHaveLength(1);
+  expect((msg.parts[0] as FilePart).type).toBe("file");
+  expect((msg.parts[0] as FilePart).mime).toBe("image/png");
 });
 
 test("text-only parts: no SDK calls, parts unchanged", async () => {
@@ -183,18 +194,16 @@ test("text-only parts: no SDK calls, parts unchanged", async () => {
     model: "openai/gpt-4o",
   });
   const parts: Part[] = [makeTextPart("hello"), makeTextPart("world")];
-  const output = { message: {} as any, parts };
+  const msg = makeUserMsgParts(parts);
+  const output = { messages: [msg] };
 
-  await hooks["chat.message"]!(
-    { sessionID: "ses_user", model: { providerID: "zai", modelID: "glm-4.6" } },
-    output as any,
-  );
+  await hooks["experimental.chat.messages.transform"]!({}, output as any);
 
   expect(providerListCount).toBe(0);
-  expect(output.parts).toBe(parts);
-  expect(output.parts).toHaveLength(2);
-  expect((output.parts[0] as TextPart).type).toBe("text");
-  expect((output.parts[1] as TextPart).type).toBe("text");
+  expect(msg.parts).toBe(parts);
+  expect(msg.parts).toHaveLength(2);
+  expect((msg.parts[0] as TextPart).type).toBe("text");
+  expect((msg.parts[1] as TextPart).type).toBe("text");
 });
 
 test("configured-model guard: active model matches vision model, no transcription", async () => {
@@ -219,19 +228,14 @@ test("configured-model guard: active model matches vision model, no transcriptio
     model: "openai/gpt-4o",
   });
   const image = makeFilePart();
-  const output = { message: {} as any, parts: [image] };
+  const msg = makeUserMsgParts([image], { providerID: "openai", modelID: "gpt-4o" });
+  const output = { messages: [msg] };
 
-  await hooks["chat.message"]!(
-    {
-      sessionID: "ses_user",
-      model: { providerID: "openai", modelID: "gpt-4o" },
-    },
-    output as any,
-  );
+  await hooks["experimental.chat.messages.transform"]!({}, output as any);
 
   expect(providerListCount).toBe(0);
-  expect((output.parts[0] as FilePart).type).toBe("file");
-  expect((output.parts[0] as FilePart).mime).toBe("image/png");
+  expect((msg.parts[0] as FilePart).type).toBe("file");
+  expect((msg.parts[0] as FilePart).mime).toBe("image/png");
 });
 
 test("no model configured: returns empty hooks", async () => {
@@ -291,17 +295,15 @@ test("describe session lifecycle: create, prompt, delete each called once", asyn
     model: "openai/gpt-4o",
   });
 
-  const output = { message: {} as any, parts: [makeFilePart()] };
-  await hooks["chat.message"]!(
-    { sessionID: "ses_user", model: { providerID: "zai", modelID: "glm-4.6" } },
-    output as any,
-  );
+  const msg = makeUserMsgParts([makeFilePart()]);
+  const output = { messages: [msg] };
+  await hooks["experimental.chat.messages.transform"]!({}, output as any);
 
   expect(createCount).toBe(1);
   expect(deleteCount).toBe(1);
   expect(promptCalled).toBe(true);
-  expect((output.parts[0] as unknown as TextPart).type).toBe("text");
-  expect((output.parts[0] as unknown as TextPart).text).toBe("described");
+  expect((msg.parts[0] as unknown as TextPart).type).toBe("text");
+  expect((msg.parts[0] as unknown as TextPart).text).toBe("described");
 });
 
 test("promptFile loads markdown prompt for vision session", async () => {
@@ -334,14 +336,279 @@ test("promptFile loads markdown prompt for vision session", async () => {
       promptFile: "prompt.md",
     });
 
-    const output = { message: {} as any, parts: [makeFilePart()] };
-    await hooks["chat.message"]!(
-      { sessionID: "ses_user", model: { providerID: "zai", modelID: "glm-4.6" } },
-      output as any,
-    );
+    const msg = makeUserMsgParts([makeFilePart()]);
+    const output = { messages: [msg] };
+    await hooks["experimental.chat.messages.transform"]!({}, output as any);
 
     expect(capturedSystem).toBe("Describe using markdown file.");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+// ── Phase 4 helpers ──────────────────────────────────────────────────────────
+
+function makeUserMsg(
+  model?: { providerID: string; modelID: string },
+  sessionID = "ses_user",
+): { info: Message; parts: Part[] } {
+  return {
+    info: {
+      id: "user-1",
+      sessionID,
+      role: "user",
+      time: { created: Date.now() },
+      agent: "default",
+      model: model ?? { providerID: "zai", modelID: "glm-4.6" },
+    } as UserMessage,
+    parts: [makeTextPart("user message")],
+  };
+}
+
+function makeToolPartWithAttachments(attachments?: FilePart[]): ToolPart {
+  const id = String(nextPartId++);
+  return {
+    id,
+    sessionID: "ses_user",
+    messageID: "msg-tool",
+    type: "tool",
+    callID: "call-1",
+    tool: "test_tool",
+    state: {
+      status: "completed",
+      input: {},
+      output: "original output",
+      title: "Test Tool",
+      metadata: {},
+      time: { start: Date.now() - 1000, end: Date.now() },
+      ...(attachments ? { attachments } : {}),
+    },
+  };
+}
+
+function makeAssistantMsgWithTool(
+  toolPart: ToolPart,
+  sessionID?: string,
+): { info: Message; parts: Part[] } {
+  return {
+    info: {
+      id: "assistant-1",
+      sessionID: sessionID ?? toolPart.sessionID,
+      role: "assistant",
+      time: { created: Date.now() },
+      parentID: "user-1",
+      modelID: "glm-4.6",
+      providerID: "zai",
+      mode: "default",
+      path: { cwd: "/tmp", root: "/tmp" },
+      cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    } as AssistantMessage,
+    parts: [toolPart],
+  };
+}
+
+// ── Phase 4: experimental.chat.messages.transform ────────────────────────────
+
+test("transform: text-only model with tool image attachment transcribes", async () => {
+  let createCount = 0;
+  let deleteCount = 0;
+
+  const fakeClient = {
+    provider: { list: async () => ({ data: providerFixture }) },
+    session: {
+      create: async () => {
+        createCount++;
+        return { data: { id: `ses_v_${createCount}` } };
+      },
+      prompt: async (_args: any) => ({
+        data: {
+          info: {},
+          parts: [{ type: "text", text: "a red square on white" }],
+        },
+      }),
+      delete: async () => {
+        deleteCount++;
+        return { data: true };
+      },
+    },
+    app: { log: async () => {} },
+  };
+
+  const hooks = await VisionFallback(buildInput(fakeClient), {
+    model: "openai/gpt-4o",
+  });
+
+  const toolPart = makeToolPartWithAttachments([makeFilePart()]);
+  const messages = [makeUserMsg(), makeAssistantMsgWithTool(toolPart)];
+
+  await hooks["experimental.chat.messages.transform"]!({}, { messages });
+
+  expect(createCount).toBe(1);
+  expect(deleteCount).toBe(1);
+
+  const part = messages[1].parts[0] as ToolPart;
+  expect(part.state.status).toBe("completed");
+  const completed = part.state as { status: "completed"; attachments: FilePart[]; output: string };
+  expect(completed.attachments).toEqual([]);
+  expect(completed.output).toContain("a red square on white");
+  expect(completed.output).toContain("Tool returned an image attachment");
+});
+
+test("transform: vision-capable model leaves tool attachments untouched", async () => {
+  let createCount = 0;
+
+  const fakeClient = {
+    provider: { list: async () => ({ data: providerFixture }) },
+    session: {
+      create: async () => {
+        createCount++;
+        return { data: { id: "ses_v" } };
+      },
+      prompt: async () => ({ data: { info: {}, parts: [] } }),
+      delete: async () => {
+        createCount++;
+        return { data: true };
+      },
+    },
+    app: { log: async () => {} },
+  };
+
+  const hooks = await VisionFallback(buildInput(fakeClient), {
+    model: "openai/gpt-4o",
+  });
+
+  const image = makeFilePart();
+  const toolPart = makeToolPartWithAttachments([image]);
+  const messages = [makeUserMsg({ providerID: "anthropic", modelID: "claude-3" }), makeAssistantMsgWithTool(toolPart)];
+
+  await hooks["experimental.chat.messages.transform"]!({}, { messages });
+
+  expect(createCount).toBe(0);
+  const part = messages[1].parts[0] as ToolPart;
+  expect(part.state.status).toBe("completed");
+  const completed = part.state as { status: "completed"; attachments?: FilePart[]; output: string };
+  expect(completed.attachments).toHaveLength(1);
+  expect(completed.attachments![0]).toBe(image);
+  expect(completed.output).toBe("original output");
+});
+
+test("transform: no tool attachments avoids SDK calls", async () => {
+  let providerListCount = 0;
+  let createCount = 0;
+
+  const fakeClient = {
+    provider: {
+      list: async () => {
+        providerListCount++;
+        return { data: providerFixture };
+      },
+    },
+    session: {
+      create: async () => {
+        createCount++;
+        return { data: { id: "s" } };
+      },
+      prompt: async () => ({ data: { info: {}, parts: [] } }),
+      delete: async () => ({ data: true }),
+    },
+    app: { log: async () => {} },
+  };
+
+  const hooks = await VisionFallback(buildInput(fakeClient), {
+    model: "openai/gpt-4o",
+  });
+
+  const toolPart = makeToolPartWithAttachments(); // no attachments
+  const messages = [makeUserMsg(), makeAssistantMsgWithTool(toolPart)];
+
+  await hooks["experimental.chat.messages.transform"]!({}, { messages });
+
+  expect(providerListCount).toBe(0);
+  expect(createCount).toBe(0);
+});
+
+test("transform: internal vision session is skipped", async () => {
+  let createCount = 0;
+  let deleteCount = 0;
+  let hooks: any;
+  let nestedSkipped = false;
+
+  const fakeClient = {
+    provider: { list: async () => ({ data: providerFixture }) },
+    session: {
+      create: async () => {
+        createCount++;
+        return { data: { id: "ses_v_internal" } };
+      },
+      prompt: async (_args: any) => {
+        // While this prompt runs, "ses_v_internal" is in internalSessions.
+        // Invoke the transform hook with a message using that sessionID.
+        const innerTool = makeToolPartWithAttachments([makeFilePart()]);
+        const innerMsgs = [
+          makeUserMsg({ providerID: "zai", modelID: "glm-4.6" }, "ses_v_internal"),
+          makeAssistantMsgWithTool(innerTool, "ses_v_internal"),
+        ];
+        const prev = createCount;
+        await hooks["experimental.chat.messages.transform"]!({}, { messages: innerMsgs });
+        nestedSkipped = createCount === prev;
+        return { data: { info: {}, parts: [{ type: "text", text: "described" }] } };
+      },
+      delete: async () => {
+        deleteCount++;
+        return { data: true };
+      },
+    },
+    app: { log: async () => {} },
+  };
+
+  hooks = await VisionFallback(buildInput(fakeClient), { model: "openai/gpt-4o" });
+
+  // Trigger describe so internalSessions gets populated
+  const outer = { messages: [makeUserMsgParts([makeFilePart()], { providerID: "zai", modelID: "glm-4.6" })] };
+  await hooks["experimental.chat.messages.transform"]!({}, outer as any);
+
+  expect(nestedSkipped).toBe(true);
+  expect(createCount).toBe(1);
+  expect(deleteCount).toBe(1);
+});
+
+test("transform: configured model guard skips transcription", async () => {
+  let createCount = 0;
+  let providerListCount = 0;
+
+  const fakeClient = {
+    provider: {
+      list: async () => {
+        providerListCount++;
+        return { data: providerFixture };
+      },
+    },
+    session: {
+      create: async () => {
+        createCount++;
+        return { data: { id: "s" } };
+      },
+      prompt: async () => ({ data: { info: {}, parts: [] } }),
+      delete: async () => ({ data: true }),
+    },
+    app: { log: async () => {} },
+  };
+
+  const hooks = await VisionFallback(buildInput(fakeClient), {
+    model: "openai/gpt-4o",
+  });
+
+  const toolPart = makeToolPartWithAttachments([makeFilePart()]);
+  const messages = [makeUserMsg({ providerID: "openai", modelID: "gpt-4o" }), makeAssistantMsgWithTool(toolPart)];
+
+  await hooks["experimental.chat.messages.transform"]!({}, { messages });
+
+  expect(createCount).toBe(0);
+  expect(providerListCount).toBe(0);
+  const part = messages[1].parts[0] as ToolPart;
+  expect(part.state.status).toBe("completed");
+  const completed = part.state as { status: "completed"; attachments?: FilePart[]; output: string };
+  expect(completed.attachments).toHaveLength(1);
+  expect(completed.output).toBe("original output");
 });

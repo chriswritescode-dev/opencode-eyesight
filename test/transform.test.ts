@@ -1,10 +1,13 @@
 import { test, expect } from "bun:test";
 import {
-  transcribeImageParts,
   isTranscribableImage,
+  toolImageAttachments,
+  transcribeMessages,
+  getActiveModel,
+  type TransformMessage,
   type DescribeFn,
 } from "../src/transform";
-import type { FilePart, TextPart, Part } from "@opencode-ai/sdk";
+import type { FilePart, TextPart, Part, ToolPart, ToolStateCompleted, Message } from "@opencode-ai/sdk";
 
 let nextId = 1;
 
@@ -34,14 +37,53 @@ function makeTextPart(overrides?: Partial<TextPart>): TextPart {
   };
 }
 
-test("transcribeImageParts replaces one image FilePart in place", async () => {
+function makeUserInfo(): Message {
+  const id = String(nextId++);
+  return {
+    id,
+    sessionID: "sess-1",
+    role: "user",
+    time: { created: 0 },
+    agent: "test",
+    model: { providerID: "test", modelID: "test" },
+  } as Message;
+}
+
+function makeToolImagePart(
+  attachments: FilePart[],
+  overrides?: Partial<ToolPart>,
+): ToolPart {
+  const id = String(nextId++);
+  return {
+    id,
+    sessionID: "sess-1",
+    messageID: "msg-1",
+    type: "tool",
+    callID: "call-1",
+    tool: "screenshot",
+    state: {
+      status: "completed",
+      input: {},
+      output: "screenshot taken",
+      title: "Screenshot",
+      metadata: {},
+      time: { start: 0, end: 1 },
+      attachments,
+    } satisfies ToolStateCompleted,
+    ...overrides,
+  };
+}
+
+test("transcribeMessages replaces one image FilePart in place", async () => {
   const image = makeFilePart();
   const text = makeTextPart();
   const parts: Part[] = [image, text];
+  const messages: TransformMessage[] = [{ info: makeUserInfo(), parts }];
 
   const describe: DescribeFn = async () => "a red square";
+  const cache = new Map<string, string>();
 
-  const count = await transcribeImageParts(parts, describe, ["image/"]);
+  const count = await transcribeMessages(messages, describe, ["image/"], cache);
 
   expect(count).toBe(1);
   expect(parts).toHaveLength(2);
@@ -56,52 +98,57 @@ test("transcribeImageParts replaces one image FilePart in place", async () => {
   expect(replacement.synthetic).toBe(false);
 });
 
-test("transcribeImageParts replaces two image parts", async () => {
+test("transcribeMessages replaces two image parts", async () => {
   const img1 = makeFilePart({ filename: "img1.png" });
   const img2 = makeFilePart({ filename: "img2.png" });
   const parts: Part[] = [img1, img2];
+  const messages: TransformMessage[] = [{ info: makeUserInfo(), parts }];
 
   let callCount = 0;
   const describe: DescribeFn = async () => {
     callCount++;
     return `description-${callCount}`;
   };
+  const cache = new Map<string, string>();
 
-  const count = await transcribeImageParts(parts, describe, ["image/"]);
+  const count = await transcribeMessages(messages, describe, ["image/"], cache);
   expect(count).toBe(2);
   expect(callCount).toBe(2);
   expect((parts[0] as TextPart).text).toBe("description-1");
   expect((parts[1] as TextPart).text).toBe("description-2");
 });
 
-test("transcribeImageParts skips non-image file parts", async () => {
+test("transcribeMessages skips non-image file parts", async () => {
   const pdf = makeFilePart({ mime: "application/pdf", filename: "doc.pdf" });
   const text = makeTextPart();
   const parts: Part[] = [pdf, text];
+  const messages: TransformMessage[] = [{ info: makeUserInfo(), parts }];
 
   const describe: DescribeFn = async () => "should not be called";
-  const count = await transcribeImageParts(parts, describe, ["image/"]);
+  const count = await transcribeMessages(messages, describe, ["image/"], new Map());
   expect(count).toBe(0);
   expect((parts[0] as FilePart).type).toBe("file");
 });
 
-test("transcribeImageParts returns 0 when no image parts exist", async () => {
+test("transcribeMessages returns 0 when no image parts exist", async () => {
   const parts: Part[] = [makeTextPart(), makeTextPart()];
+  const messages: TransformMessage[] = [{ info: makeUserInfo(), parts }];
   const describe: DescribeFn = async () => "should not be called";
-  const count = await transcribeImageParts(parts, describe, ["image/"]);
+  const count = await transcribeMessages(messages, describe, ["image/"], new Map());
   expect(count).toBe(0);
   expect(parts).toHaveLength(2);
 });
 
-test("transcribeImageParts handles describe throwing an error", async () => {
+test("transcribeMessages handles describe throwing an error", async () => {
   const image = makeFilePart({ filename: "broken.png" });
   const parts: Part[] = [image];
+  const messages: TransformMessage[] = [{ info: makeUserInfo(), parts }];
 
   const describe: DescribeFn = async () => {
     throw new Error("API error");
   };
 
-  const count = await transcribeImageParts(parts, describe, ["image/"]);
+  const count = await transcribeMessages(messages, describe, ["image/"], new Map());
   expect(count).toBe(1);
 
   const replacement = parts[0] as TextPart;
@@ -125,4 +172,327 @@ test("isTranscribableImage returns false for non-matching mime", () => {
 test("isTranscribableImage returns false for text parts", () => {
   const text = makeTextPart();
   expect(isTranscribableImage(text, ["image/"])).toBe(false);
+});
+
+test("toolImageAttachments returns image attachments for completed tool part", () => {
+  const image = makeFilePart({ mime: "image/png" });
+  const part = makeToolImagePart([image]);
+  const result = toolImageAttachments(part, ["image/"]);
+  expect(result).toEqual([image]);
+});
+
+test("toolImageAttachments returns [] when tool part has no attachments", () => {
+  const part = makeToolImagePart([]);
+  const result = toolImageAttachments(part, ["image/"]);
+  expect(result).toEqual([]);
+});
+
+test("toolImageAttachments returns [] when state.status is running", () => {
+  const image = makeFilePart({ mime: "image/png" });
+  const id = String(nextId++);
+  const part: ToolPart = {
+    id,
+    sessionID: "sess-1",
+    messageID: "msg-1",
+    type: "tool",
+    callID: "call-1",
+    tool: "screenshot",
+    state: {
+      status: "running",
+      input: {},
+      title: "Screenshot",
+      metadata: {},
+      time: { start: 0 },
+    },
+  };
+  const result = toolImageAttachments(part, ["image/"]);
+  expect(result).toEqual([]);
+});
+
+test("toolImageAttachments filters out non-image attachments", () => {
+  const image = makeFilePart({ mime: "image/png", filename: "img.png" });
+  const pdf = makeFilePart({ mime: "application/pdf", filename: "doc.pdf" });
+  const part = makeToolImagePart([image, pdf]);
+  const result = toolImageAttachments(part, ["image/"]);
+  expect(result).toEqual([image]);
+});
+
+test("toolImageAttachments returns [] for a non-tool part (TextPart)", () => {
+  const text = makeTextPart();
+  const result = toolImageAttachments(text, ["image/"]);
+  expect(result).toEqual([]);
+});
+
+// ── transcribeMessages ──────────────────────────────────────
+
+test("transcribeMessages transcribes single image attachment", async () => {
+  const image = makeFilePart({ mime: "image/png", filename: "screenshot.png" });
+  const toolPart = makeToolImagePart([image]);
+  const messages: TransformMessage[] = [
+    { info: makeUserInfo(), parts: [toolPart] },
+  ];
+  const describe: DescribeFn = async () => "a red square";
+  const cache = new Map<string, string>();
+
+  const count = await transcribeMessages(messages, describe, ["image/"], cache);
+
+  expect(count).toBe(1);
+  const state = toolPart.state as ToolStateCompleted;
+  expect(state.attachments).toEqual([]);
+  expect(state.output).toContain("screenshot taken");
+  expect(state.output).toContain("a red square");
+});
+
+test("transcribeMessages transcribes two image attachments on one tool part", async () => {
+  const img1 = makeFilePart({ mime: "image/png", filename: "img1.png" });
+  const img2 = makeFilePart({ mime: "image/png", filename: "img2.png" });
+  const toolPart = makeToolImagePart([img1, img2]);
+  const messages: TransformMessage[] = [
+    { info: makeUserInfo(), parts: [toolPart] },
+  ];
+  let callCount = 0;
+  const describe: DescribeFn = async () => {
+    callCount++;
+    return `description-${callCount}`;
+  };
+  const cache = new Map<string, string>();
+
+  const count = await transcribeMessages(messages, describe, ["image/"], cache);
+
+  expect(count).toBe(2);
+  const state = toolPart.state as ToolStateCompleted;
+  expect(state.attachments).toEqual([]);
+  expect(state.output).toContain("description-1");
+  expect(state.output).toContain("description-2");
+  expect(callCount).toBe(2);
+});
+
+test("transcribeMessages handles mixed image and pdf attachments", async () => {
+  const image = makeFilePart({ mime: "image/png", filename: "img.png" });
+  const pdf = makeFilePart({ mime: "application/pdf", filename: "doc.pdf" });
+  const toolPart = makeToolImagePart([image, pdf]);
+  const messages: TransformMessage[] = [
+    { info: makeUserInfo(), parts: [toolPart] },
+  ];
+  const describe: DescribeFn = async () => "a red square";
+  const cache = new Map<string, string>();
+
+  const count = await transcribeMessages(messages, describe, ["image/"], cache);
+
+  expect(count).toBe(1);
+  const state = toolPart.state as ToolStateCompleted;
+  expect(state.attachments).toHaveLength(1);
+  expect(state.attachments![0].mime).toBe("application/pdf");
+  expect(state.output).toContain("a red square");
+});
+
+test("transcribeMessages returns 0 for running tool part", async () => {
+  const id = String(nextId++);
+  const runningPart: ToolPart = {
+    id,
+    sessionID: "sess-1",
+    messageID: "msg-1",
+    type: "tool",
+    callID: "call-1",
+    tool: "screenshot",
+    state: {
+      status: "running",
+      input: {},
+      title: "Screenshot",
+      metadata: {},
+      time: { start: 0 },
+    },
+  };
+  const messages: TransformMessage[] = [
+    { info: makeUserInfo(), parts: [runningPart] },
+  ];
+  const describe: DescribeFn = async () => "should not be called";
+  const cache = new Map<string, string>();
+
+  const count = await transcribeMessages(messages, describe, ["image/"], cache);
+  expect(count).toBe(0);
+  expect(runningPart.state.status).toBe("running");
+});
+
+test("transcribeMessages returns 0 when no targets exist", async () => {
+  const messages: TransformMessage[] = [
+    { info: makeUserInfo(), parts: [makeTextPart(), makeTextPart()] },
+  ];
+  const describe: DescribeFn = async () => "should not be called";
+  const cache = new Map<string, string>();
+
+  const count = await transcribeMessages(messages, describe, ["image/"], cache);
+  expect(count).toBe(0);
+});
+
+test("transcribeMessages handles describe throwing an error", async () => {
+  const image = makeFilePart({ mime: "image/png", filename: "broken.png" });
+  const toolPart = makeToolImagePart([image]);
+  const messages: TransformMessage[] = [
+    { info: makeUserInfo(), parts: [toolPart] },
+  ];
+  const describe: DescribeFn = async () => {
+    throw new Error("API error");
+  };
+  const cache = new Map<string, string>();
+
+  const count = await transcribeMessages(messages, describe, ["image/"], cache);
+
+  expect(count).toBe(1);
+  const state = toolPart.state as ToolStateCompleted;
+  expect(state.attachments).toEqual([]);
+  expect(state.output).toContain('[Image "broken.png" could not be transcribed: API error]');
+});
+
+test("transcribeMessages reuses cache across messages with same attachment id", async () => {
+  const sharedId = "shared-img-1";
+  const img1 = makeFilePart({ id: sharedId, mime: "image/png", filename: "a.png" });
+  const img2 = makeFilePart({ id: sharedId, mime: "image/png", filename: "a.png" });
+  const toolPartA = makeToolImagePart([img1]);
+  const toolPartB = makeToolImagePart([img2]);
+
+  const messages: TransformMessage[] = [
+    { info: makeUserInfo(), parts: [toolPartA] },
+    { info: makeUserInfo(), parts: [toolPartB] },
+  ];
+
+  let describeCalls = 0;
+  const describe: DescribeFn = async () => {
+    describeCalls++;
+    return "vision result";
+  };
+  const cache = new Map<string, string>();
+
+  const count = await transcribeMessages(messages, describe, ["image/"], cache);
+
+  expect(count).toBe(2);
+  expect(describeCalls).toBe(1);
+  const stateA = toolPartA.state as ToolStateCompleted;
+  const stateB = toolPartB.state as ToolStateCompleted;
+  expect(stateA.output).toContain("vision result");
+  expect(stateB.output).toContain("vision result");
+});
+
+test("transcribeMessages handles user image and tool attachment together", async () => {
+  const userImage = makeFilePart({ filename: "pasted.png" });
+  const userParts: Part[] = [userImage, makeTextPart()];
+  const toolImage = makeFilePart({ filename: "screenshot.png" });
+  const toolPart = makeToolImagePart([toolImage]);
+
+  const messages: TransformMessage[] = [
+    { info: makeUserInfo(), parts: userParts },
+    { info: makeUserInfo(), parts: [toolPart] },
+  ];
+
+  let callCount = 0;
+  const describe: DescribeFn = async () => {
+    callCount++;
+    return `vision-${callCount}`;
+  };
+  const cache = new Map<string, string>();
+
+  const count = await transcribeMessages(messages, describe, ["image/"], cache);
+
+  expect(count).toBe(2);
+  expect(callCount).toBe(2);
+  expect((userParts[0] as TextPart).type).toBe("text");
+  expect((userParts[0] as TextPart).text).toBe("vision-1");
+  const state = toolPart.state as ToolStateCompleted;
+  expect(state.attachments).toEqual([]);
+  expect(state.output).toContain("vision-2");
+});
+
+// ── getActiveModel ──────────────────────────────────────────────────
+
+function makeAssistantInfo(
+  overrides?: Partial<{ providerID: string; modelID: string }>,
+): Message {
+  const id = String(nextId++);
+  return {
+    id,
+    sessionID: "sess-1",
+    parentID: "parent-1",
+    role: "assistant",
+    mode: "chat",
+    path: { cwd: "/", root: "/" },
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    time: { created: 0 },
+    providerID: "test-provider",
+    modelID: "test-model",
+    ...overrides,
+  } as unknown as Message;
+}
+
+test("getActiveModel returns the last user message's model when present", () => {
+  const messages: TransformMessage[] = [
+    {
+      info: makeUserInfo(),
+      parts: [],
+    },
+    {
+      info: {
+        ...makeUserInfo(),
+        model: { providerID: "custom", modelID: "custom-model" },
+      } as unknown as Message,
+      parts: [],
+    },
+  ];
+  const result = getActiveModel(messages);
+  expect(result).toEqual({ providerID: "custom", modelID: "custom-model" });
+});
+
+test("getActiveModel falls back to assistant provider/model when user has no model", () => {
+  const messages: TransformMessage[] = [
+    {
+      info: makeAssistantInfo({ providerID: "fallback", modelID: "fallback-model" }),
+      parts: [],
+    },
+  ];
+  const result = getActiveModel(messages);
+  expect(result).toEqual({ providerID: "fallback", modelID: "fallback-model" });
+});
+
+test("getActiveModel skips latest user without model and falls back to assistant", () => {
+  const messages: TransformMessage[] = [
+    {
+      info: makeAssistantInfo({ providerID: "assistant-provider", modelID: "assistant-model" }),
+      parts: [],
+    },
+    {
+      info: {
+        ...makeUserInfo(),
+        model: undefined,
+      } as unknown as Message,
+      parts: [],
+    },
+  ];
+  const result = getActiveModel(messages);
+  expect(result).toEqual({ providerID: "assistant-provider", modelID: "assistant-model" });
+});
+
+test("getActiveModel returns undefined when no user model and no assistant provider/model", () => {
+  const messages: TransformMessage[] = [
+    {
+      info: makeAssistantInfo({ providerID: "", modelID: "" }),
+      parts: [],
+    },
+  ];
+  const result = getActiveModel(messages);
+  expect(result).toBeUndefined();
+});
+
+test("getActiveModel prefers last user model over last assistant provider/model", () => {
+  const messages: TransformMessage[] = [
+    {
+      info: makeUserInfo(),
+      parts: [],
+    },
+    {
+      info: makeAssistantInfo({ providerID: "assistant", modelID: "assistant-model" }),
+      parts: [],
+    },
+  ];
+  const result = getActiveModel(messages);
+  expect(result).toEqual({ providerID: "test", modelID: "test" });
 });

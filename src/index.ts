@@ -4,7 +4,13 @@ import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { resolveConfig } from "./config";
 import { makeCapabilityLookup } from "./capabilities";
-import { transcribeImageParts } from "./transform";
+import {
+  transcribeMessages,
+  toolImageAttachments,
+  isTranscribableImage,
+  getActiveModel,
+  type TransformMessage,
+} from "./transform";
 
 export const VisionFallback: Plugin = async (input, options) => {
   const cfg = await resolveConfig(options, process.env, async (path) =>
@@ -25,6 +31,7 @@ export const VisionFallback: Plugin = async (input, options) => {
 
   const lookup = makeCapabilityLookup(input.client);
   const internalSessions = new Set<string>();
+  const attachmentCache = new Map<string, string>();
 
   const describe = async (part: FilePart): Promise<string> => {
     const created = await input.client.session.create({
@@ -58,19 +65,30 @@ export const VisionFallback: Plugin = async (input, options) => {
   };
 
   return {
-    "chat.message": async (hookInput, output) => {
-      if (!hookInput.model) return;
-      if (internalSessions.has(hookInput.sessionID)) return;
-      const { providerID, modelID } = hookInput.model;
-      if (providerID === cfg.providerID && modelID === cfg.modelID) return;
+    "experimental.chat.messages.transform": async (_input, output) => {
+      const messages = output.messages as TransformMessage[];
+      if (messages.length === 0) return;
+
+      const sessionID = messages.find((m) => m.info?.sessionID)?.info.sessionID;
+      if (sessionID && internalSessions.has(sessionID)) return;
+
       if (
-        !output.parts.some(
-          (p) => p.type === "file" && cfg.mimePrefixes.some((m) => p.mime.startsWith(m)),
+        !messages.some((m) =>
+          m.parts.some(
+            (p) =>
+              isTranscribableImage(p, cfg.mimePrefixes) ||
+              toolImageAttachments(p, cfg.mimePrefixes).length > 0,
+          ),
         )
       )
         return;
-      if (await lookup(providerID, modelID)) return;
-      await transcribeImageParts(output.parts, describe, cfg.mimePrefixes);
+
+      const model = getActiveModel(messages);
+      if (!model) return;
+      if (model.providerID === cfg.providerID && model.modelID === cfg.modelID) return;
+      if (await lookup(model.providerID, model.modelID)) return;
+
+      await transcribeMessages(messages, describe, cfg.mimePrefixes, attachmentCache);
     },
   };
 };
