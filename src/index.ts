@@ -33,7 +33,7 @@ export const VisionFallback: Plugin = async (input, options) => {
   const internalSessions = new Set<string>();
   const attachmentCache = new Map<string, string>();
 
-  const describe = async (part: FilePart): Promise<string> => {
+  const describe = async (part: FilePart, userText: string): Promise<string> => {
     const created = await input.client.session.create({
       body: { title: "vision-fallback" },
     });
@@ -41,13 +41,17 @@ export const VisionFallback: Plugin = async (input, options) => {
     const sid = created.data.id;
     internalSessions.add(sid);
     try {
+      const instruction =
+        userText.trim().length > 0
+          ? `Describe this image in detail. The user's accompanying message is below; tailor your description to help address it.\n\nUser message:\n${userText}`
+          : "Describe this image in detail.";
       const res = await input.client.session.prompt({
         path: { id: sid },
         body: {
           model: { providerID: cfg.providerID, modelID: cfg.modelID },
           system: cfg.prompt,
           parts: [
-            { type: "text", text: "Describe this image in detail." },
+            { type: "text", text: instruction },
             { type: "file", mime: part.mime, filename: part.filename, url: part.url },
           ],
         },

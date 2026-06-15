@@ -54,6 +54,8 @@ If the active model already supports image input, the plugin leaves the image un
 
 Images returned by MCP or tool calls (e.g. screenshots) are handled the same way: when the active model is text-only, the description is appended to the tool's output text and the image attachment is removed from the request, while non-image attachments are preserved. Both pasted images and tool images share a process-lifetime cache, so repeated identical images are described only once.
 
+When you send a pasted image with an accompanying message, that message is included in the prompt to the vision model so the description is tailored to it. For images returned by MCP or tool calls, the most recent user message is used as context for the description, providing relevant framing.
+
 ## Options
 
 | Option | Required | Description |
