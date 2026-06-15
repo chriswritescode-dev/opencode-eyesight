@@ -1,6 +1,6 @@
 # opencode-eyesight
 
-OpenCode plugin that lets text-only models work with pasted images by sending each image to a vision-capable model first, then replacing the image with a text description.
+OpenCode plugin that lets text-only models work with user-provided and tool-returned images by sending each image to a vision-capable model first, then replacing the image with a text description.
 
 ## Installation
 
