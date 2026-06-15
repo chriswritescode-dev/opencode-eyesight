@@ -43,7 +43,7 @@ export const VisionFallback: Plugin = async (input, options) => {
     try {
       const instruction =
         userText.trim().length > 0
-          ? `Describe this image in detail. The user's accompanying message is below; tailor your description to help address it.\n\nUser message:\n${userText}`
+          ? `The user's accompanying message is below; tailor your description to help address it.\n\nUser message:\n${userText}`
           : "Describe this image in detail.";
       const res = await input.client.session.prompt({
         path: { id: sid },

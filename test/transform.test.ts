@@ -4,7 +4,6 @@ import {
   toolImageAttachments,
   transcribeMessages,
   getActiveModel,
-  latestUserText,
   type TransformMessage,
   type DescribeFn,
 } from "../src/transform";
@@ -472,19 +471,28 @@ test("transcribeMessages passes latest user message as context for tool image", 
   expect(capturedUserText).toBe("Find the bug in this screenshot");
 });
 
-test("latestUserText returns last user message text and empty string when no user message", () => {
-  const userMsg: TransformMessage = {
-    info: makeUserInfo(),
-    parts: [makeTextPart({ text: "what is this?" })],
-  };
-  const assistantOnly: TransformMessage = {
-    info: makeAssistantInfo(),
-    parts: [],
-  };
+test("transcribeMessages scopes each tool image to its nearest preceding user message", async () => {
+  const imageA = makeFilePart({ id: "tool-img-a" });
+  const imageB = makeFilePart({ id: "tool-img-b" });
 
-  expect(latestUserText([userMsg])).toBe("what is this?");
-  expect(latestUserText([assistantOnly])).toBe("");
-  expect(latestUserText([])).toBe("");
+  const messages: TransformMessage[] = [
+    { info: makeUserInfo(), parts: [makeTextPart({ text: "investigate bug A" })] },
+    { info: makeAssistantInfo(), parts: [makeToolImagePart([imageA])] },
+    { info: makeUserInfo(), parts: [makeTextPart({ text: "now do bug B" })] },
+    { info: makeAssistantInfo(), parts: [makeToolImagePart([imageB])] },
+  ];
+
+  const captured = new Map<string, string>();
+  const describe: DescribeFn = async (part, userText) => {
+    captured.set(part.id, userText);
+    return "described";
+  };
+  const cache = new Map<string, string>();
+
+  const count = await transcribeMessages(messages, describe, ["image/"], cache);
+  expect(count).toBe(2);
+  expect(captured.get("tool-img-a")).toBe("investigate bug A");
+  expect(captured.get("tool-img-b")).toBe("now do bug B");
 });
 
 // ── getActiveModel ──────────────────────────────────────────────────

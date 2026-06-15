@@ -653,5 +653,5 @@ test("vision prompt includes the user's accompanying message", async () => {
   );
   expect(textPart).toBeDefined();
   expect(textPart!.text).toContain("What is the hex color of the button?");
-  expect(textPart!.text).toContain("Describe this image");
+  expect(textPart!.text).toContain("tailor your description");
 });

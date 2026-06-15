@@ -45,13 +45,6 @@ export function messageText(parts: Part[]): string {
     .trim();
 }
 
-export function latestUserText(messages: TransformMessage[]): string {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].info.role === "user") return messageText(messages[i].parts);
-  }
-  return "";
-}
-
 function formatToolDescriptions(images: FilePart[], cache: Map<string, string>, userText: string): string {
   const header =
     images.length === 1
@@ -74,10 +67,11 @@ export async function transcribeMessages(
   cache: Map<string, string>,
 ): Promise<number> {
   const targets: Array<FileTarget | ToolTarget> = [];
-  const toolUserText = latestUserText(messages);
+  let currentUserText = "";
 
   for (const msg of messages) {
     const msgUserText = messageText(msg.parts);
+    if (msg.info.role === "user") currentUserText = msgUserText;
     msg.parts.forEach((part, index) => {
       if (isTranscribableImage(part, mimePrefixes)) {
         targets.push({ kind: "file", parts: msg.parts, index, image: part, userText: msgUserText });
@@ -90,7 +84,7 @@ export async function transcribeMessages(
       const images = attachments.filter((a) => matchesMime(a, mimePrefixes));
       if (images.length === 0) return;
       const rest = attachments.filter((a) => !matchesMime(a, mimePrefixes));
-      targets.push({ kind: "tool", state, images, rest, userText: toolUserText });
+      targets.push({ kind: "tool", state, images, rest, userText: currentUserText });
     });
   }
   if (targets.length === 0) return 0;
