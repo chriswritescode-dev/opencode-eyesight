@@ -5,6 +5,7 @@ export type ProviderListData = {
       string,
       {
         modalities?: { input: string[]; output: string[] };
+        capabilities?: { input?: { image?: boolean } };
       }
     >;
   }>;
@@ -18,7 +19,8 @@ export function supportsImageInput(
   modelID: string,
 ): boolean {
   const provider = data.all.find((p) => p.id === providerID);
-  return provider?.models[modelID]?.modalities?.input?.includes("image") ?? false;
+  const model = provider?.models[modelID];
+  return model?.capabilities?.input?.image ?? model?.modalities?.input?.includes("image") ?? false;
 }
 
 export function makeCapabilityLookup(
