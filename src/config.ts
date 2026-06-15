@@ -7,10 +7,6 @@ export interface VisionFallbackConfig {
 
 export const DEFAULT_PROMPT = `Describe this image thoroughly. Transcribe all visible text verbatim, identify UI elements (buttons, dialogs, input fields, menus), list objects and people, describe layout and spatial relationships, and state the overall purpose or context. Be concise but complete so a blind user can fully understand what is shown.`;
 
-/**
- * Splits a model string on the first `/` only.
- * Returns `{ providerID, modelID }` if both sides are non-empty, otherwise `undefined`.
- */
 export function parseModel(
   model: string,
 ): { providerID: string; modelID: string } | undefined {
@@ -22,13 +18,6 @@ export function parseModel(
   return { providerID, modelID };
 }
 
-/**
- * Resolves configuration with the following precedence:
- * 1. `options.model` (must be a string)
- * 2. `env.OPENCODE_VISION_FALLBACK_MODEL`
- *
- * Returns `undefined` when no model can be resolved (plugin disabled).
- */
 export function resolveConfig(
   options: Record<string, unknown> | undefined,
   env: Record<string, string | undefined>,

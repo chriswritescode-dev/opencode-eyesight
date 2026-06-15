@@ -44,19 +44,15 @@ test("transcribeImageParts replaces one image FilePart in place", async () => {
   const count = await transcribeImageParts(parts, describe, ["image/"]);
 
   expect(count).toBe(1);
-  // Original array identity preserved
   expect(parts).toHaveLength(2);
-  // Text part is untouched
   expect(parts[1]).toBe(text);
   expect((parts[1] as TextPart).text).toBe("existing text");
-  // Image slot is now a TextPart with same ids
   const replacement = parts[0] as TextPart;
   expect(replacement.type).toBe("text");
   expect(replacement.text).toBe("a red square");
   expect(replacement.id).toBe(image.id);
   expect(replacement.sessionID).toBe(image.sessionID);
   expect(replacement.messageID).toBe(image.messageID);
-  // synthetic should be false
   expect(replacement.synthetic).toBe(false);
 });
 
@@ -105,7 +101,6 @@ test("transcribeImageParts handles describe throwing an error", async () => {
     throw new Error("API error");
   };
 
-  // Must not throw
   const count = await transcribeImageParts(parts, describe, ["image/"]);
   expect(count).toBe(1);
 

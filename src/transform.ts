@@ -9,11 +9,6 @@ export function isTranscribableImage(
   return part.type === "file" && mimePrefixes.some((p) => part.mime.startsWith(p));
 }
 
-/**
- * Transcribes image parts in-place, replacing them with text parts.
- * Returns the count of replaced parts.
- * Thrown errors from `describe` are caught and replaced with a fallback text.
- */
 export async function transcribeImageParts(
   parts: Part[],
   describe: DescribeFn,

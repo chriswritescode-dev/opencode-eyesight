@@ -74,7 +74,6 @@ test("makeCapabilityLookup memoizes and only calls provider.list once", async ()
 
   const second = await lookup("zai", "glm-4.6");
   expect(second).toBe(false);
-  // Should still be 1 because data is cached
   expect(callCount).toBe(1);
 });
 
@@ -107,18 +106,14 @@ test("makeCapabilityLookup refetches on cache miss for unknown provider/model", 
 
   const lookup = makeCapabilityLookup(fakeClient as any);
 
-  // First call: known provider/model, should fetch
   const first = await lookup("openai", "gpt-4o");
   expect(first).toBe(true);
   expect(callCount).toBe(1);
 
-  // Second call: unknown provider, should refetch
   const second = await lookup("unknown", "x");
   expect(second).toBe(false);
-  // Should have refetched: 2 calls now
   expect(callCount).toBe(2);
 
-  // Third call: back to known provider/model, should NOT refetch (it was in the refetched data)
   const third = await lookup("openai", "gpt-4o");
   expect(third).toBe(true);
   expect(callCount).toBe(2);
