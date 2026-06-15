@@ -6,7 +6,7 @@ import { resolveConfig } from "./config";
 import { makeCapabilityLookup } from "./capabilities";
 import {
   transcribeMessages,
-  hasTranscriptionTargets,
+  collectTranscriptionTargets,
   messageText,
   getActiveModel,
   type TransformMessage,
@@ -72,14 +72,15 @@ export const VisionFallback: Plugin = async (input, options) => {
       const sessionID = messages.find((m) => m.info?.sessionID)?.info.sessionID;
       if (sessionID && internalSessions.has(sessionID)) return;
 
-      if (!hasTranscriptionTargets(messages, cfg.mimePrefixes)) return;
+      const targets = collectTranscriptionTargets(messages, cfg.mimePrefixes);
+      if (targets.length === 0) return;
 
       const model = getActiveModel(messages);
       if (!model) return;
       if (model.providerID === cfg.providerID && model.modelID === cfg.modelID) return;
       if (await lookup(model.providerID, model.modelID)) return;
 
-      await transcribeMessages(messages, describe, cfg.mimePrefixes, attachmentCache);
+      await transcribeMessages(targets, describe, attachmentCache);
     },
   };
 };

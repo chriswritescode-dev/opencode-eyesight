@@ -3,6 +3,7 @@ import {
   isTranscribableImage,
   toolImageAttachments,
   transcribeMessages,
+  collectTranscriptionTargets,
   getActiveModel,
   type TransformMessage,
   type DescribeFn,
@@ -80,7 +81,7 @@ async function transcribeWithUserTextCapture(messages: TransformMessage[]) {
     captured.set(part.id, userText);
     return "described";
   };
-  const count = await transcribeMessages(messages, describe, ["image/"], new Map());
+  const count = await transcribeMessages(collectTranscriptionTargets(messages, ["image/"]), describe, new Map());
   return { captured, count };
 }
 
@@ -93,7 +94,7 @@ test("transcribeMessages replaces one image FilePart in place", async () => {
   const describe: DescribeFn = async () => "a red square";
   const cache = new Map<string, string>();
 
-  const count = await transcribeMessages(messages, describe, ["image/"], cache);
+  const count = await transcribeMessages(collectTranscriptionTargets(messages, ["image/"]), describe, cache);
 
   expect(count).toBe(1);
   expect(parts).toHaveLength(2);
@@ -121,7 +122,7 @@ test("transcribeMessages replaces two image parts", async () => {
   };
   const cache = new Map<string, string>();
 
-  const count = await transcribeMessages(messages, describe, ["image/"], cache);
+  const count = await transcribeMessages(collectTranscriptionTargets(messages, ["image/"]), describe, cache);
   expect(count).toBe(2);
   expect(callCount).toBe(2);
   expect((parts[0] as TextPart).text).toBe("description-1");
@@ -135,7 +136,7 @@ test("transcribeMessages skips non-image file parts", async () => {
   const messages: TransformMessage[] = [{ info: makeUserInfo(), parts }];
 
   const describe: DescribeFn = async () => "should not be called";
-  const count = await transcribeMessages(messages, describe, ["image/"], new Map());
+  const count = await transcribeMessages(collectTranscriptionTargets(messages, ["image/"]), describe, new Map());
   expect(count).toBe(0);
   expect((parts[0] as FilePart).type).toBe("file");
 });
@@ -144,7 +145,7 @@ test("transcribeMessages returns 0 when no image parts exist", async () => {
   const parts: Part[] = [makeTextPart(), makeTextPart()];
   const messages: TransformMessage[] = [{ info: makeUserInfo(), parts }];
   const describe: DescribeFn = async () => "should not be called";
-  const count = await transcribeMessages(messages, describe, ["image/"], new Map());
+  const count = await transcribeMessages(collectTranscriptionTargets(messages, ["image/"]), describe, new Map());
   expect(count).toBe(0);
   expect(parts).toHaveLength(2);
 });
@@ -158,7 +159,7 @@ test("transcribeMessages handles describe throwing an error", async () => {
     throw new Error("API error");
   };
 
-  const count = await transcribeMessages(messages, describe, ["image/"], new Map());
+  const count = await transcribeMessages(collectTranscriptionTargets(messages, ["image/"]), describe, new Map());
   expect(count).toBe(1);
 
   const replacement = parts[0] as TextPart;
@@ -244,7 +245,7 @@ test("transcribeMessages transcribes single image attachment", async () => {
   const describe: DescribeFn = async () => "a red square";
   const cache = new Map<string, string>();
 
-  const count = await transcribeMessages(messages, describe, ["image/"], cache);
+  const count = await transcribeMessages(collectTranscriptionTargets(messages, ["image/"]), describe, cache);
 
   expect(count).toBe(1);
   const state = toolPart.state as ToolStateCompleted;
@@ -267,7 +268,7 @@ test("transcribeMessages transcribes two image attachments on one tool part", as
   };
   const cache = new Map<string, string>();
 
-  const count = await transcribeMessages(messages, describe, ["image/"], cache);
+  const count = await transcribeMessages(collectTranscriptionTargets(messages, ["image/"]), describe, cache);
 
   expect(count).toBe(2);
   const state = toolPart.state as ToolStateCompleted;
@@ -287,7 +288,7 @@ test("transcribeMessages handles mixed image and pdf attachments", async () => {
   const describe: DescribeFn = async () => "a red square";
   const cache = new Map<string, string>();
 
-  const count = await transcribeMessages(messages, describe, ["image/"], cache);
+  const count = await transcribeMessages(collectTranscriptionTargets(messages, ["image/"]), describe, cache);
 
   expect(count).toBe(1);
   const state = toolPart.state as ToolStateCompleted;
@@ -319,7 +320,7 @@ test("transcribeMessages returns 0 for running tool part", async () => {
   const describe: DescribeFn = async () => "should not be called";
   const cache = new Map<string, string>();
 
-  const count = await transcribeMessages(messages, describe, ["image/"], cache);
+  const count = await transcribeMessages(collectTranscriptionTargets(messages, ["image/"]), describe, cache);
   expect(count).toBe(0);
   expect(runningPart.state.status).toBe("running");
 });
@@ -331,7 +332,7 @@ test("transcribeMessages returns 0 when no targets exist", async () => {
   const describe: DescribeFn = async () => "should not be called";
   const cache = new Map<string, string>();
 
-  const count = await transcribeMessages(messages, describe, ["image/"], cache);
+  const count = await transcribeMessages(collectTranscriptionTargets(messages, ["image/"]), describe, cache);
   expect(count).toBe(0);
 });
 
@@ -346,7 +347,7 @@ test("transcribeMessages handles describe throwing an error", async () => {
   };
   const cache = new Map<string, string>();
 
-  const count = await transcribeMessages(messages, describe, ["image/"], cache);
+  const count = await transcribeMessages(collectTranscriptionTargets(messages, ["image/"]), describe, cache);
 
   expect(count).toBe(1);
   const state = toolPart.state as ToolStateCompleted;
@@ -373,7 +374,7 @@ test("transcribeMessages reuses cache across messages with same attachment id", 
   };
   const cache = new Map<string, string>();
 
-  const count = await transcribeMessages(messages, describe, ["image/"], cache);
+  const count = await transcribeMessages(collectTranscriptionTargets(messages, ["image/"]), describe, cache);
 
   expect(count).toBe(2);
   expect(describeCalls).toBe(1);
@@ -401,7 +402,7 @@ test("transcribeMessages handles user image and tool attachment together", async
   };
   const cache = new Map<string, string>();
 
-  const count = await transcribeMessages(messages, describe, ["image/"], cache);
+  const count = await transcribeMessages(collectTranscriptionTargets(messages, ["image/"]), describe, cache);
 
   expect(count).toBe(2);
   expect(callCount).toBe(2);
@@ -442,7 +443,7 @@ test("transcribeMessages re-describes same image id when accompanying text diffe
   };
   const cache = new Map<string, string>();
 
-  const count = await transcribeMessages([msg1, msg2], describe, ["image/"], cache);
+  const count = await transcribeMessages(collectTranscriptionTargets([msg1, msg2], ["image/"]), describe, cache);
   expect(count).toBe(2);
   expect(describeCalls).toBe(2);
 });

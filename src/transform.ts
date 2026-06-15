@@ -71,7 +71,7 @@ function splitToolAttachments(
   return { state: part.state, images, rest };
 }
 
-function collectTranscriptionTargets(
+export function collectTranscriptionTargets(
   messages: TransformMessage[],
   mimePrefixes: string[],
 ): Array<FileTarget | ToolTarget> {
@@ -106,12 +106,10 @@ export function toolImageAttachments(part: Part, mimePrefixes: string[]): FilePa
 }
 
 export async function transcribeMessages(
-  messages: TransformMessage[],
+  targets: Array<FileTarget | ToolTarget>,
   describe: DescribeFn,
-  mimePrefixes: string[],
   cache: Map<string, string>,
 ): Promise<number> {
-  const targets = collectTranscriptionTargets(messages, mimePrefixes);
   if (targets.length === 0) return 0;
 
   const pending = new Map<string, { img: FilePart; userText: string }>();
