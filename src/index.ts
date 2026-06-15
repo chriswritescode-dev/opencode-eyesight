@@ -1,13 +1,13 @@
 import type { Plugin } from "@opencode-ai/plugin";
-import type { FilePart } from "@opencode-ai/sdk";
+import type { FilePart, Part } from "@opencode-ai/sdk";
 import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { resolveConfig } from "./config";
 import { makeCapabilityLookup } from "./capabilities";
 import {
   transcribeMessages,
-  toolImageAttachments,
-  isTranscribableImage,
+  collectTranscriptionTargets,
+  messageText,
   getActiveModel,
   type TransformMessage,
 } from "./transform";
@@ -33,7 +33,30 @@ export const VisionFallback: Plugin = async (input, options) => {
   const internalSessions = new Set<string>();
   const attachmentCache = new Map<string, string>();
 
-  const describe = async (part: FilePart): Promise<string> => {
+  const log = (
+    level: "debug" | "info" | "warn",
+    message: string,
+    fields?: Record<string, unknown>,
+  ) => {
+    input.client.app
+      .log({
+        body: {
+          service: "vision-fallback",
+          level,
+          message,
+          extra: fields,
+        },
+      })
+      .catch(() => {});
+  };
+
+  log("info", "plugin initialized", {
+    visionProviderID: cfg.providerID,
+    visionModelID: cfg.modelID,
+    mimePrefixes: cfg.mimePrefixes,
+  });
+
+  const describe = async (part: FilePart, userText: string): Promise<string> => {
     const created = await input.client.session.create({
       body: { title: "vision-fallback" },
     });
@@ -41,23 +64,23 @@ export const VisionFallback: Plugin = async (input, options) => {
     const sid = created.data.id;
     internalSessions.add(sid);
     try {
+      const instruction =
+        userText.trim().length > 0
+          ? `The user's accompanying message is below; tailor your description to help address it.\n\nUser message:\n${userText}`
+          : "Describe this image in detail.";
       const res = await input.client.session.prompt({
         path: { id: sid },
         body: {
           model: { providerID: cfg.providerID, modelID: cfg.modelID },
           system: cfg.prompt,
           parts: [
-            { type: "text", text: "Describe this image in detail." },
+            { type: "text", text: instruction },
             { type: "file", mime: part.mime, filename: part.filename, url: part.url },
           ],
         },
       });
       if (res.error || !res.data) throw new Error("vision session prompt failed");
-      return (res.data.parts as Array<{ type: string; text?: string }>)
-        .filter((p) => p.type === "text")
-        .map((p) => p.text!)
-        .join("\n")
-        .trim();
+      return messageText(res.data.parts as Part[]);
     } finally {
       internalSessions.delete(sid);
       await input.client.session.delete({ path: { id: sid } }).catch(() => {});
@@ -70,25 +93,52 @@ export const VisionFallback: Plugin = async (input, options) => {
       if (messages.length === 0) return;
 
       const sessionID = messages.find((m) => m.info?.sessionID)?.info.sessionID;
-      if (sessionID && internalSessions.has(sessionID)) return;
-
-      if (
-        !messages.some((m) =>
-          m.parts.some(
-            (p) =>
-              isTranscribableImage(p, cfg.mimePrefixes) ||
-              toolImageAttachments(p, cfg.mimePrefixes).length > 0,
-          ),
-        )
-      )
+      if (sessionID && internalSessions.has(sessionID)) {
+        log("info", "skip: internal vision session", { sessionID });
         return;
+      }
+
+      const targets = collectTranscriptionTargets(messages, cfg.mimePrefixes);
+      if (targets.length === 0) {
+        log("info", "skip: no transcription targets", { messageCount: messages.length });
+        return;
+      }
 
       const model = getActiveModel(messages);
-      if (!model) return;
-      if (model.providerID === cfg.providerID && model.modelID === cfg.modelID) return;
-      if (await lookup(model.providerID, model.modelID)) return;
+      if (!model) {
+        log("info", "skip: no active model", { targetCount: targets.length });
+        return;
+      }
+      if (model.providerID === cfg.providerID && model.modelID === cfg.modelID) {
+        log("info", "skip: active model is configured vision model", {
+          providerID: model.providerID,
+          modelID: model.modelID,
+          targetCount: targets.length,
+        });
+        return;
+      }
+      const supportsImages = await lookup(model.providerID, model.modelID);
+      log("info", "capability lookup result", {
+        providerID: model.providerID,
+        modelID: model.modelID,
+        supportsImages,
+        targetCount: targets.length,
+      });
+      if (supportsImages) {
+        log("info", "skip: active model supports images, passing through", {
+          providerID: model.providerID,
+          modelID: model.modelID,
+          targetCount: targets.length,
+        });
+        return;
+      }
 
-      await transcribeMessages(messages, describe, cfg.mimePrefixes, attachmentCache);
+      log("info", "transcribing images to text", {
+        providerID: model.providerID,
+        modelID: model.modelID,
+        targetCount: targets.length,
+      });
+      await transcribeMessages(targets, describe, attachmentCache);
     },
   };
 };

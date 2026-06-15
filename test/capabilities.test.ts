@@ -24,6 +24,14 @@ const fixture: ProviderListData = {
       },
     },
     {
+      id: "greatscott",
+      models: {
+        "minimax-m3": {
+          capabilities: { input: { image: true } },
+        },
+      },
+    },
+    {
       id: "weird",
       models: {
         "no-modalities": {},
@@ -36,6 +44,10 @@ const fixture: ProviderListData = {
 
 test("supportsImageInput returns true when model has image input modality", () => {
   expect(supportsImageInput(fixture, "openai", "gpt-4o")).toBe(true);
+});
+
+test("supportsImageInput returns true when model has image input capability", () => {
+  expect(supportsImageInput(fixture, "greatscott", "minimax-m3")).toBe(true);
 });
 
 test("supportsImageInput returns false when model has only text input", () => {

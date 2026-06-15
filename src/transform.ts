@@ -1,20 +1,13 @@
 import type { Part, FilePart, TextPart, ToolStateCompleted, Message } from "@opencode-ai/sdk";
 
-export type DescribeFn = (part: FilePart) => Promise<string>;
+export type DescribeFn = (part: FilePart, userText: string) => Promise<string>;
 
 function matchesMime(a: FilePart, mimePrefixes: string[]): boolean {
   return mimePrefixes.some((p) => a.mime.startsWith(p));
 }
 
-export function toolImageAttachments(part: Part, mimePrefixes: string[]): FilePart[] {
-  if (part.type !== "tool" || part.state.status !== "completed") return [];
-  const attachments = part.state.attachments;
-  if (!attachments) return [];
-  return attachments.filter((a) => matchesMime(a, mimePrefixes));
-}
-
-async function describeOrError(file: FilePart, describe: DescribeFn): Promise<string> {
-  return describe(file).catch(
+async function describeOrError(file: FilePart, userText: string, describe: DescribeFn): Promise<string> {
+  return describe(file, userText).catch(
     (e: unknown) =>
       `[Image "${file.filename ?? "image"}" could not be transcribed: ${e instanceof Error ? e.message : String(e)}]`,
   );
@@ -33,59 +26,104 @@ function attachmentKey(a: FilePart): string {
   return a.id || a.url;
 }
 
-function formatToolDescriptions(images: FilePart[], cache: Map<string, string>): string {
+function cacheKey(image: FilePart, userText: string): string {
+  return userText ? `${attachmentKey(image)}\u0000${userText}` : attachmentKey(image);
+}
+
+export function messageText(parts: Part[]): string {
+  return parts
+    .filter((p): p is TextPart => p.type === "text")
+    .map((p) => p.text)
+    .join("\n")
+    .trim();
+}
+
+function formatToolDescriptions(images: FilePart[], cache: Map<string, string>, userText: string): string {
   const header =
     images.length === 1
       ? "[Tool returned an image attachment. Vision description:]"
       : `[Tool returned ${images.length} image attachments. Vision descriptions:]`;
   const lines = images.map((img) => {
     const label = img.filename ? `Image "${img.filename}"` : "Image";
-    return `${label}: ${cache.get(attachmentKey(img)) ?? ""}`;
+    return `${label}: ${cache.get(cacheKey(img, userText)) ?? ""}`;
   });
   return [header, ...lines].join("\n\n");
 }
 
-type FileTarget = { kind: "file"; parts: Part[]; index: number; image: FilePart };
-type ToolTarget = { kind: "tool"; state: ToolStateCompleted; images: FilePart[]; rest: FilePart[] };
+type FileTarget = { kind: "file"; parts: Part[]; index: number; image: FilePart; userText: string };
+type ToolTarget = { kind: "tool"; state: ToolStateCompleted; images: FilePart[]; rest: FilePart[]; userText: string };
 
-export async function transcribeMessages(
-  messages: TransformMessage[],
-  describe: DescribeFn,
+function splitToolAttachments(
+  part: Part,
   mimePrefixes: string[],
-  cache: Map<string, string>,
-): Promise<number> {
+): { state: ToolStateCompleted; images: FilePart[]; rest: FilePart[] } | undefined {
+  if (part.type !== "tool" || part.state.status !== "completed") return undefined;
+  const attachments = part.state.attachments;
+  if (!attachments || attachments.length === 0) return undefined;
+
+  const images: FilePart[] = [];
+  const rest: FilePart[] = [];
+  for (const attachment of attachments) {
+    if (matchesMime(attachment, mimePrefixes)) images.push(attachment);
+    else rest.push(attachment);
+  }
+  if (images.length === 0) return undefined;
+  return { state: part.state, images, rest };
+}
+
+export function collectTranscriptionTargets(
+  messages: TransformMessage[],
+  mimePrefixes: string[],
+): Array<FileTarget | ToolTarget> {
   const targets: Array<FileTarget | ToolTarget> = [];
+  let currentUserText = "";
 
   for (const msg of messages) {
+    let msgUserText: string | undefined;
+    const getMsgUserText = () => (msgUserText ??= messageText(msg.parts));
+    if (msg.info.role === "user") currentUserText = getMsgUserText();
+
     msg.parts.forEach((part, index) => {
       if (isTranscribableImage(part, mimePrefixes)) {
-        targets.push({ kind: "file", parts: msg.parts, index, image: part });
+        targets.push({ kind: "file", parts: msg.parts, index, image: part, userText: getMsgUserText() });
         return;
       }
-      if (part.type !== "tool" || part.state.status !== "completed") return;
-      const state = part.state;
-      const attachments = state.attachments;
-      if (!attachments || attachments.length === 0) return;
-      const images = attachments.filter((a) => matchesMime(a, mimePrefixes));
-      if (images.length === 0) return;
-      const rest = attachments.filter((a) => !matchesMime(a, mimePrefixes));
-      targets.push({ kind: "tool", state, images, rest });
+      const split = splitToolAttachments(part, mimePrefixes);
+      if (!split) return;
+      targets.push({ kind: "tool", ...split, userText: currentUserText });
     });
   }
+
+  return targets;
+}
+
+export function hasTranscriptionTargets(messages: TransformMessage[], mimePrefixes: string[]): boolean {
+  return collectTranscriptionTargets(messages, mimePrefixes).length > 0;
+}
+
+export function toolImageAttachments(part: Part, mimePrefixes: string[]): FilePart[] {
+  return splitToolAttachments(part, mimePrefixes)?.images ?? [];
+}
+
+export async function transcribeMessages(
+  targets: Array<FileTarget | ToolTarget>,
+  describe: DescribeFn,
+  cache: Map<string, string>,
+): Promise<number> {
   if (targets.length === 0) return 0;
 
-  const pending = new Map<string, FilePart>();
-  const addPending = (img: FilePart) => {
-    const key = attachmentKey(img);
-    if (!cache.has(key) && !pending.has(key)) pending.set(key, img);
+  const pending = new Map<string, { img: FilePart; userText: string }>();
+  const addPending = (img: FilePart, userText: string) => {
+    const key = cacheKey(img, userText);
+    if (!cache.has(key) && !pending.has(key)) pending.set(key, { img, userText });
   };
   for (const target of targets) {
-    if (target.kind === "file") addPending(target.image);
-    else for (const img of target.images) addPending(img);
+    if (target.kind === "file") addPending(target.image, target.userText);
+    else for (const img of target.images) addPending(img, target.userText);
   }
   await Promise.all(
-    [...pending.entries()].map(async ([key, img]) => {
-      cache.set(key, await describeOrError(img, describe));
+    [...pending.entries()].map(async ([key, { img, userText }]) => {
+      cache.set(key, await describeOrError(img, userText, describe));
     }),
   );
 
@@ -98,12 +136,12 @@ export async function transcribeMessages(
         sessionID: file.sessionID,
         messageID: file.messageID,
         type: "text",
-        text: cache.get(attachmentKey(file)) ?? "",
+        text: cache.get(cacheKey(file, target.userText)) ?? "",
         synthetic: false,
       } satisfies TextPart;
       count += 1;
     } else {
-      const described = formatToolDescriptions(target.images, cache);
+      const described = formatToolDescriptions(target.images, cache, target.userText);
       target.state.output =
         target.state.output.trim().length > 0
           ? `${target.state.output}\n\n${described}`

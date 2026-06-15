@@ -91,6 +91,29 @@ function buildInputWithDirectory(fakeClient: Record<string, unknown>, directory:
   };
 }
 
+function makePromptCaptureClient(
+  onPrompt: (args: any) => void,
+  sessionId = "ses_prompt",
+) {
+  return {
+    provider: { list: async () => ({ data: providerFixture }) },
+    session: {
+      create: async () => ({ data: { id: sessionId } }),
+      prompt: async (args: any) => {
+        onPrompt(args);
+        return {
+          data: {
+            info: {},
+            parts: [{ type: "text", text: "described" }],
+          },
+        };
+      },
+      delete: async () => ({ data: true }),
+    },
+    app: { log: async () => {} },
+  };
+}
+
 test("non-vision model with image: transcribes via vision model", async () => {
   let createCount = 0;
   let deleteCount = 0;
@@ -312,23 +335,9 @@ test("promptFile loads markdown prompt for vision session", async () => {
 
   let capturedSystem: unknown;
 
-  const fakeClient = {
-    provider: { list: async () => ({ data: providerFixture }) },
-    session: {
-      create: async () => ({ data: { id: "ses_prompt_file" } }),
-      prompt: async (args: any) => {
-        capturedSystem = args.body?.system;
-        return {
-          data: {
-            info: {},
-            parts: [{ type: "text", text: "described" }],
-          },
-        };
-      },
-      delete: async () => ({ data: true }),
-    },
-    app: { log: async () => {} },
-  };
+  const fakeClient = makePromptCaptureClient((args) => {
+    capturedSystem = args.body?.system;
+  }, "ses_prompt_file");
 
   try {
     const hooks = await VisionFallback(buildInputWithDirectory(fakeClient, directory), {
@@ -611,4 +620,33 @@ test("transform: configured model guard skips transcription", async () => {
   const completed = part.state as { status: "completed"; attachments?: FilePart[]; output: string };
   expect(completed.attachments).toHaveLength(1);
   expect(completed.output).toBe("original output");
+});
+
+// ── Phase 3: vision prompt includes user's accompanying text ─────────────────
+
+test("vision prompt includes the user's accompanying message", async () => {
+  let capturedParts: unknown;
+
+  const fakeClient = makePromptCaptureClient((args) => {
+    capturedParts = args.body?.parts;
+  }, "ses_prompt_text");
+
+  const hooks = await VisionFallback(buildInput(fakeClient), {
+    model: "openai/gpt-4o",
+  });
+
+  const msg = makeUserMsgParts([
+    makeFilePart(),
+    makeTextPart("What is the hex color of the button?"),
+  ]);
+  const output = { messages: [msg] };
+
+  await hooks["experimental.chat.messages.transform"]!({}, output as any);
+
+  const textPart = (capturedParts as Array<Record<string, unknown>>).find(
+    (p) => p.type === "text",
+  );
+  expect(textPart).toBeDefined();
+  expect(textPart!.text).toContain("What is the hex color of the button?");
+  expect(textPart!.text).toContain("tailor your description");
 });
