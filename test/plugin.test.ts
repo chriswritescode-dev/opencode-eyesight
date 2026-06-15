@@ -612,3 +612,46 @@ test("transform: configured model guard skips transcription", async () => {
   expect(completed.attachments).toHaveLength(1);
   expect(completed.output).toBe("original output");
 });
+
+// ── Phase 3: vision prompt includes user's accompanying text ─────────────────
+
+test("vision prompt includes the user's accompanying message", async () => {
+  let capturedParts: unknown;
+
+  const fakeClient = {
+    provider: { list: async () => ({ data: providerFixture }) },
+    session: {
+      create: async () => ({ data: { id: "ses_prompt_text" } }),
+      prompt: async (args: any) => {
+        capturedParts = args.body?.parts;
+        return {
+          data: {
+            info: {},
+            parts: [{ type: "text", text: "described" }],
+          },
+        };
+      },
+      delete: async () => ({ data: true }),
+    },
+    app: { log: async () => {} },
+  };
+
+  const hooks = await VisionFallback(buildInput(fakeClient), {
+    model: "openai/gpt-4o",
+  });
+
+  const msg = makeUserMsgParts([
+    makeFilePart(),
+    makeTextPart("What is the hex color of the button?"),
+  ]);
+  const output = { messages: [msg] };
+
+  await hooks["experimental.chat.messages.transform"]!({}, output as any);
+
+  const textPart = (capturedParts as Array<Record<string, unknown>>).find(
+    (p) => p.type === "text",
+  );
+  expect(textPart).toBeDefined();
+  expect(textPart!.text).toContain("What is the hex color of the button?");
+  expect(textPart!.text).toContain("tailor your description");
+});

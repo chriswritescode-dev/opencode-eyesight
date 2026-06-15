@@ -402,6 +402,99 @@ test("transcribeMessages handles user image and tool attachment together", async
   expect(state.output).toContain("vision-2");
 });
 
+test("transcribeMessages passes accompanying user text as context for pasted image", async () => {
+  const image = makeFilePart();
+  const text = makeTextPart({ text: "What does the error message say?" });
+  const parts: Part[] = [image, text];
+  const messages: TransformMessage[] = [{ info: makeUserInfo(), parts }];
+
+  let capturedUserText: string | undefined;
+  const describe: DescribeFn = async (_part, userText) => {
+    capturedUserText = userText;
+    return "description";
+  };
+  const cache = new Map<string, string>();
+
+  await transcribeMessages(messages, describe, ["image/"], cache);
+  expect(capturedUserText).toBe("What does the error message say?");
+});
+
+test("transcribeMessages re-describes same image id when accompanying text differs", async () => {
+  const img1 = makeFilePart({ id: "img-x" });
+  const img2 = makeFilePart({ id: "img-x" });
+
+  const msg1: TransformMessage = {
+    info: makeUserInfo(),
+    parts: [img1, makeTextPart({ text: "question one" })],
+  };
+  const msg2: TransformMessage = {
+    info: makeUserInfo(),
+    parts: [img2, makeTextPart({ text: "question two" })],
+  };
+
+  let describeCalls = 0;
+  const describe: DescribeFn = async () => {
+    describeCalls++;
+    return "description";
+  };
+  const cache = new Map<string, string>();
+
+  const count = await transcribeMessages([msg1, msg2], describe, ["image/"], cache);
+  expect(count).toBe(2);
+  expect(describeCalls).toBe(2);
+});
+
+test("transcribeMessages passes latest user message as context for tool image", async () => {
+  const image = makeFilePart();
+  const toolPart = makeToolImagePart([image]);
+
+  const messages: TransformMessage[] = [
+    {
+      info: makeUserInfo(),
+      parts: [makeTextPart({ text: "Find the bug in this screenshot" })],
+    },
+    {
+      info: makeAssistantInfo(),
+      parts: [toolPart],
+    },
+  ];
+
+  let capturedUserText: string | undefined;
+  const describe: DescribeFn = async (_part, userText) => {
+    capturedUserText = userText;
+    return "found it";
+  };
+  const cache = new Map<string, string>();
+
+  const count = await transcribeMessages(messages, describe, ["image/"], cache);
+  expect(count).toBe(1);
+  expect(capturedUserText).toBe("Find the bug in this screenshot");
+});
+
+test("transcribeMessages scopes each tool image to its nearest preceding user message", async () => {
+  const imageA = makeFilePart({ id: "tool-img-a" });
+  const imageB = makeFilePart({ id: "tool-img-b" });
+
+  const messages: TransformMessage[] = [
+    { info: makeUserInfo(), parts: [makeTextPart({ text: "investigate bug A" })] },
+    { info: makeAssistantInfo(), parts: [makeToolImagePart([imageA])] },
+    { info: makeUserInfo(), parts: [makeTextPart({ text: "now do bug B" })] },
+    { info: makeAssistantInfo(), parts: [makeToolImagePart([imageB])] },
+  ];
+
+  const captured = new Map<string, string>();
+  const describe: DescribeFn = async (part, userText) => {
+    captured.set(part.id, userText);
+    return "described";
+  };
+  const cache = new Map<string, string>();
+
+  const count = await transcribeMessages(messages, describe, ["image/"], cache);
+  expect(count).toBe(2);
+  expect(captured.get("tool-img-a")).toBe("investigate bug A");
+  expect(captured.get("tool-img-b")).toBe("now do bug B");
+});
+
 // ── getActiveModel ──────────────────────────────────────────────────
 
 function makeAssistantInfo(
