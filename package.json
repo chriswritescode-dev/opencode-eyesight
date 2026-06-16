@@ -2,6 +2,10 @@
   "name": "opencode-eyesight",
   "version": "0.1.3",
   "description": "OpenCode plugin that lets text-only models work with pasted images through a vision-capable model.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chriswritescode-dev/opencode-eyesight"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "exports": {
