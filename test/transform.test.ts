@@ -125,8 +125,8 @@ test("transcribeMessages replaces two image parts", async () => {
   const count = await transcribeMessages(collectTranscriptionTargets(messages, ["image/"]), describe, cache);
   expect(count).toBe(2);
   expect(callCount).toBe(2);
-  expect((parts[0] as TextPart).text).toBe("description-1");
-  expect((parts[1] as TextPart).text).toBe("description-2");
+  expect((parts[0] as TextPart).text).toBe("[Image 1 vision description:]\ndescription-1");
+  expect((parts[1] as TextPart).text).toBe("[Image 2 vision description:]\ndescription-2");
 });
 
 test("transcribeMessages skips non-image file parts", async () => {

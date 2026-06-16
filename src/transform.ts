@@ -50,6 +50,11 @@ function formatToolDescriptions(images: FilePart[], cache: Map<string, string>, 
   return [header, ...lines].join("\n\n");
 }
 
+function formatUserImageDescription(index: number, description: string, includeLabel: boolean): string {
+  if (!includeLabel) return description;
+  return `[Image ${index} vision description:]\n${description}`;
+}
+
 type FileTarget = { kind: "file"; parts: Part[]; index: number; image: FilePart; userText: string };
 type ToolTarget = { kind: "tool"; state: ToolStateCompleted; images: FilePart[]; rest: FilePart[]; userText: string };
 
@@ -127,16 +132,31 @@ export async function transcribeMessages(
     }),
   );
 
+  const fileTargetCounts = new Map<Part[], number>();
+  const fileTargetIndexes = new Map<FileTarget, number>();
+  for (const target of targets) {
+    if (target.kind === "file") {
+      const index = (fileTargetCounts.get(target.parts) ?? 0) + 1;
+      fileTargetCounts.set(target.parts, index);
+      fileTargetIndexes.set(target, index);
+    }
+  }
+
   let count = 0;
   for (const target of targets) {
     if (target.kind === "file") {
       const file = target.image;
+      const description = cache.get(cacheKey(file, target.userText)) ?? "";
       target.parts[target.index] = {
         id: file.id,
         sessionID: file.sessionID,
         messageID: file.messageID,
         type: "text",
-        text: cache.get(cacheKey(file, target.userText)) ?? "",
+        text: formatUserImageDescription(
+          fileTargetIndexes.get(target) ?? 1,
+          description,
+          (fileTargetCounts.get(target.parts) ?? 0) > 1,
+        ),
         synthetic: false,
       } satisfies TextPart;
       count += 1;

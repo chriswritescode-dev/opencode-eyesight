@@ -161,6 +161,56 @@ test("non-vision model with image: transcribes via vision model", async () => {
   expect(capturedModel).toEqual({ providerID: "openai", modelID: "gpt-4o" });
 });
 
+test("non-vision model with two images: transcribes both via vision model", async () => {
+  let createCount = 0;
+  let deleteCount = 0;
+  const promptedFiles: string[] = [];
+
+  const fakeClient = {
+    provider: { list: async () => ({ data: providerFixture }) },
+    session: {
+      create: async () => {
+        createCount++;
+        return { data: { id: `ses_v_${createCount}` } };
+      },
+      prompt: async (args: any) => {
+        const filePart = args.body?.parts.find((part: Part) => part.type === "file") as FilePart;
+        promptedFiles.push(filePart.filename ?? "");
+        return {
+          data: {
+            info: {},
+            parts: [{ type: "text", text: `description for ${filePart.filename}` }],
+          },
+        };
+      },
+      delete: async () => {
+        deleteCount++;
+        return { data: true };
+      },
+    },
+    app: { log: async () => {} },
+  };
+
+  const hooks = await VisionFallback(buildInput(fakeClient), {
+    model: "openai/gpt-4o",
+  });
+  const msg = makeUserMsgParts([
+    makeFilePart({ filename: "first.png", url: "file:///tmp/first.png" }),
+    makeFilePart({ filename: "second.png", url: "file:///tmp/second.png" }),
+    makeTextPart("Compare these screenshots."),
+  ]);
+  const output = { messages: [msg] };
+
+  await hooks["experimental.chat.messages.transform"]!({}, output as any);
+
+  expect(createCount).toBe(2);
+  expect(deleteCount).toBe(2);
+  expect(promptedFiles).toEqual(["first.png", "second.png"]);
+  expect((msg.parts[0] as TextPart).text).toBe("[Image 1 vision description:]\ndescription for first.png");
+  expect((msg.parts[1] as TextPart).text).toBe("[Image 2 vision description:]\ndescription for second.png");
+  expect((msg.parts[2] as TextPart).text).toBe("Compare these screenshots.");
+});
+
 test("vision-capable model: parts untouched, no vision session created", async () => {
   let sessionCreateCount = 0;
 
