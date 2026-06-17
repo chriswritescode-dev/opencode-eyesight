@@ -443,6 +443,22 @@ test("promptFile loads markdown prompt for vision session", async () => {
   }
 });
 
+test("vision session disables all tools (read-only)", async () => {
+  let capturedTools: unknown;
+
+  const fakeClient = makePromptCaptureClient((args) => {
+    capturedTools = args.body?.tools;
+  }, "ses_readonly");
+
+  const hooks = await VisionFallback(buildInput(fakeClient), { model: "openai/gpt-4o" });
+
+  const msg = makeUserMsgParts([makeFilePart()]);
+  const output = { messages: [msg] };
+  await hooks["experimental.chat.messages.transform"]!({}, output as any);
+
+  expect(capturedTools).toEqual({ "*": false });
+});
+
 // ── Phase 4 helpers ──────────────────────────────────────────────────────────
 
 function makeUserMsg(

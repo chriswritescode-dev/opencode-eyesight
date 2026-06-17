@@ -74,6 +74,7 @@ export const VisionFallback: Plugin = async (input, options) => {
         body: {
           model: { providerID: cfg.providerID, modelID: cfg.modelID },
           system: cfg.prompt,
+          tools: { "*": false },
           parts: [
             { type: "text", text: instruction },
             { type: "file", mime: part.mime, filename: part.filename, url: part.url },
