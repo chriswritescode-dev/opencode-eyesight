@@ -7,6 +7,7 @@ import { makeCapabilityLookup } from "./capabilities";
 import {
   transcribeMessages,
   collectTranscriptionTargets,
+  currentRequestMessages,
   messageText,
   getActiveModel,
   type TransformMessage,
@@ -98,13 +99,14 @@ export const VisionFallback: Plugin = async (input, options) => {
         return;
       }
 
-      const targets = collectTranscriptionTargets(messages, cfg.mimePrefixes);
+      const requestMessages = currentRequestMessages(messages);
+      const targets = collectTranscriptionTargets(requestMessages, cfg.mimePrefixes);
       if (targets.length === 0) {
         log("info", "skip: no transcription targets", { messageCount: messages.length });
         return;
       }
 
-      const model = getActiveModel(messages);
+      const model = getActiveModel(requestMessages);
       if (!model) {
         log("info", "skip: no active model", { targetCount: targets.length });
         return;

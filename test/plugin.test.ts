@@ -279,6 +279,44 @@ test("text-only parts: no SDK calls, parts unchanged", async () => {
   expect((msg.parts[1] as TextPart).type).toBe("text");
 });
 
+test("current text-only request ignores prior vision-model image parts", async () => {
+  let providerListCount = 0;
+  let createCount = 0;
+
+  const fakeClient = {
+    provider: {
+      list: async () => {
+        providerListCount++;
+        return { data: providerFixture };
+      },
+    },
+    session: {
+      create: async () => {
+        createCount++;
+        return { data: { id: "s" } };
+      },
+      prompt: async () => ({ data: { info: {}, parts: [{ type: "text", text: "described" }] } }),
+      delete: async () => ({ data: true }),
+    },
+    app: { log: async () => {} },
+  };
+
+  const hooks = await VisionFallback(buildInput(fakeClient), {
+    model: "openai/gpt-4o",
+  });
+  const oldImage = makeFilePart();
+  const oldMsg = makeUserMsgParts([oldImage], { providerID: "openai", modelID: "gpt-4o" });
+  const currentMsg = makeUserMsgParts([makeTextPart("continue")], { providerID: "zai", modelID: "glm-4.6" });
+  const output = { messages: [oldMsg, currentMsg] };
+
+  await hooks["experimental.chat.messages.transform"]!({}, output as any);
+
+  expect(providerListCount).toBe(0);
+  expect(createCount).toBe(0);
+  expect(oldMsg.parts[0]).toBe(oldImage);
+  expect((currentMsg.parts[0] as TextPart).text).toBe("continue");
+});
+
 test("configured-model guard: active model matches vision model, no transcription", async () => {
   let providerListCount = 0;
 

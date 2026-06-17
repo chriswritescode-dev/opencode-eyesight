@@ -102,6 +102,13 @@ export function collectTranscriptionTargets(
   return targets;
 }
 
+export function currentRequestMessages(messages: TransformMessage[]): TransformMessage[] {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].info.role === "user") return messages.slice(i);
+  }
+  return messages;
+}
+
 export function hasTranscriptionTargets(messages: TransformMessage[], mimePrefixes: string[]): boolean {
   return collectTranscriptionTargets(messages, mimePrefixes).length > 0;
 }
