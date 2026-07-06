@@ -102,7 +102,7 @@ test("transcribeMessages replaces one image FilePart in place", async () => {
   expect((parts[1] as TextPart).text).toBe("existing text");
   const replacement = parts[0] as TextPart;
   expect(replacement.type).toBe("text");
-  expect(replacement.text).toBe("a red square");
+  expect(replacement.text).toBe("[Vision model description of the attached image:]\na red square\n[/Vision model description]");
   expect(replacement.id).toBe(image.id);
   expect(replacement.sessionID).toBe(image.sessionID);
   expect(replacement.messageID).toBe(image.messageID);
@@ -125,8 +125,8 @@ test("transcribeMessages replaces two image parts", async () => {
   const count = await transcribeMessages(collectTranscriptionTargets(messages, ["image/"]), describe, cache);
   expect(count).toBe(2);
   expect(callCount).toBe(2);
-  expect((parts[0] as TextPart).text).toBe("[Image 1 vision description:]\ndescription-1");
-  expect((parts[1] as TextPart).text).toBe("[Image 2 vision description:]\ndescription-2");
+  expect((parts[0] as TextPart).text).toBe("[Vision model description of the attached image 1:]\ndescription-1\n[/Vision model description 1]");
+  expect((parts[1] as TextPart).text).toBe("[Vision model description of the attached image 2:]\ndescription-2\n[/Vision model description 2]");
 });
 
 test("transcribeMessages skips non-image file parts", async () => {
@@ -165,7 +165,7 @@ test("transcribeMessages handles describe throwing an error", async () => {
   const replacement = parts[0] as TextPart;
   expect(replacement.type).toBe("text");
   expect(replacement.text).toBe(
-    '[Image "broken.png" could not be transcribed: API error]',
+    '[Vision model description of the attached image:]\n[Image "broken.png" could not be transcribed: API error]\n[/Vision model description]',
   );
   expect(replacement.id).toBe(image.id);
 });
@@ -407,7 +407,7 @@ test("transcribeMessages handles user image and tool attachment together", async
   expect(count).toBe(2);
   expect(callCount).toBe(2);
   expect((userParts[0] as TextPart).type).toBe("text");
-  expect((userParts[0] as TextPart).text).toBe("vision-1");
+  expect((userParts[0] as TextPart).text).toBe("[Vision model description of the attached image:]\nvision-1\n[/Vision model description]");
   const state = toolPart.state as ToolStateCompleted;
   expect(state.attachments).toEqual([]);
   expect(state.output).toContain("vision-2");

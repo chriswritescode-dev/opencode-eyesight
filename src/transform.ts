@@ -38,21 +38,24 @@ export function messageText(parts: Part[]): string {
     .trim();
 }
 
+function formatVisionDescription(description: string, label: string): string {
+  return `[Vision model description of the attached image${label}:]\n${description}\n[/Vision model description${label}]`;
+}
+
 function formatToolDescriptions(images: FilePart[], cache: Map<string, string>, userText: string): string {
   const header =
     images.length === 1
-      ? "[Tool returned an image attachment. Vision description:]"
-      : `[Tool returned ${images.length} image attachments. Vision descriptions:]`;
-  const lines = images.map((img) => {
-    const label = img.filename ? `Image "${img.filename}"` : "Image";
-    return `${label}: ${cache.get(cacheKey(img, userText)) ?? ""}`;
+      ? "[Tool returned an image attachment:]"
+      : `[Tool returned ${images.length} image attachments:]`;
+  const blocks = images.map((img) => {
+    const label = img.filename ? ` "${img.filename}"` : "";
+    return formatVisionDescription(cache.get(cacheKey(img, userText)) ?? "", label);
   });
-  return [header, ...lines].join("\n\n");
+  return [header, ...blocks].join("\n\n");
 }
 
 function formatUserImageDescription(index: number, description: string, includeLabel: boolean): string {
-  if (!includeLabel) return description;
-  return `[Image ${index} vision description:]\n${description}`;
+  return formatVisionDescription(description, includeLabel ? ` ${index}` : "");
 }
 
 type FileTarget = { kind: "file"; parts: Part[]; index: number; image: FilePart; userText: string };

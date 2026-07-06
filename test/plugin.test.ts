@@ -154,7 +154,7 @@ test("non-vision model with image: transcribes via vision model", async () => {
   expect(msg.parts).toHaveLength(2);
   const replacement = msg.parts[0] as TextPart;
   expect(replacement.type).toBe("text");
-  expect(replacement.text).toBe("a red square on white");
+  expect(replacement.text).toBe("[Vision model description of the attached image:]\na red square on white\n[/Vision model description]");
   expect(replacement.id).toBeDefined();
   expect(createCount).toBe(1);
   expect(deleteCount).toBe(1);
@@ -206,8 +206,8 @@ test("non-vision model with two images: transcribes both via vision model", asyn
   expect(createCount).toBe(2);
   expect(deleteCount).toBe(2);
   expect(promptedFiles).toEqual(["first.png", "second.png"]);
-  expect((msg.parts[0] as TextPart).text).toBe("[Image 1 vision description:]\ndescription for first.png");
-  expect((msg.parts[1] as TextPart).text).toBe("[Image 2 vision description:]\ndescription for second.png");
+  expect((msg.parts[0] as TextPart).text).toBe("[Vision model description of the attached image 1:]\ndescription for first.png\n[/Vision model description 1]");
+  expect((msg.parts[1] as TextPart).text).toBe("[Vision model description of the attached image 2:]\ndescription for second.png\n[/Vision model description 2]");
   expect((msg.parts[2] as TextPart).text).toBe("Compare these screenshots.");
 });
 
@@ -414,7 +414,7 @@ test("describe session lifecycle: create, prompt, delete each called once", asyn
   expect(deleteCount).toBe(1);
   expect(promptCalled).toBe(true);
   expect((msg.parts[0] as unknown as TextPart).type).toBe("text");
-  expect((msg.parts[0] as unknown as TextPart).text).toBe("described");
+  expect((msg.parts[0] as unknown as TextPart).text).toBe("[Vision model description of the attached image:]\ndescribed\n[/Vision model description]");
 });
 
 test("promptFile loads markdown prompt for vision session", async () => {
