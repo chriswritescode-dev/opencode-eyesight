@@ -1,10 +1,10 @@
 # opencode-eyesight
 
-OpenCode plugin that lets text-only models work with user-provided and tool-returned images by sending each image to a vision-capable model first, then replacing the image with a text description.
+OpenCode plugin that lets text-only models work with user-provided and tool-returned images by sending each image through a built-in vision agent first, then replacing the image with a text description.
 
 ## Installation
 
-Add the plugin package to your OpenCode config with the vision model you want to use for image descriptions.
+Add the plugin package to your OpenCode config with the vision model you want the built-in `vision` agent to use for image descriptions.
 
 ```jsonc
 {
@@ -34,13 +34,15 @@ For local development before publishing, use the project path instead:
 }
 ```
 
-The `model` value must use OpenCode's provider/model format:
+A `model` value must use OpenCode's provider/model format:
 
 ```text
 ProviderID/ModelID
 ```
 
-Use a model that supports image input. Your active chat model can be text-only; `opencode-eyesight` will use the configured vision model only to describe images.
+Use a model that supports image input. Your active chat model can be text-only; `opencode-eyesight` registers a read-only `vision` subagent using the configured model and uses it only to describe images.
+
+To customize the agent, define `vision` in `~/.config/opencode/agents/vision.md` or `.opencode/agents/vision.md`. Your agent fields override the plugin defaults, including its model, prompt, tools, and permissions.
 
 ## Usage
 
@@ -60,9 +62,11 @@ When you send a pasted image with an accompanying message, that message is inclu
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `model` | Yes | Vision-capable OpenCode model in `ProviderID/ModelID` format. |
-| `promptFile` | No | Markdown file containing the prompt used when asking the vision model to describe an image. Relative paths resolve from the OpenCode project directory. |
-| `prompt` | No | Inline prompt used when asking the vision model to describe an image. Takes precedence over `promptFile`. |
+| `model` | Yes | Default vision-capable OpenCode model for the built-in `vision` agent, in `ProviderID/ModelID` format. |
+| `promptFile` | No | Markdown file containing the built-in agent's prompt. Relative paths resolve from the OpenCode project directory. |
+| `prompt` | No | Inline prompt for the built-in agent. Takes precedence over `promptFile`. |
+
+The model can also be supplied through `OPENCODE_VISION_FALLBACK_MODEL`. A user-defined `vision` agent takes precedence over the corresponding built-in defaults.
 
 ## Development
 

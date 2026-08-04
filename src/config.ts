@@ -1,3 +1,5 @@
+import type { Config } from "@opencode-ai/plugin";
+
 export interface VisionFallbackConfig {
   providerID: string;
   modelID: string;
@@ -6,6 +8,8 @@ export interface VisionFallbackConfig {
 }
 
 export type PromptFileReader = (path: string) => Promise<string>;
+
+export const VISION_AGENT_NAME = "vision";
 
 export const DEFAULT_PROMPT = `Describe this image thoroughly. Transcribe all visible text verbatim, identify UI elements (buttons, dialogs, input fields, menus), list objects and people, describe layout and spatial relationships, and state the overall purpose or context. Be concise but complete so a blind user can fully understand what is shown.`;
 
@@ -41,6 +45,27 @@ export async function resolveConfig(
     ...parsed,
     prompt,
     mimePrefixes: ["image/"],
+  };
+}
+
+export function registerVisionAgent(config: Config, cfg: VisionFallbackConfig): void {
+  const existing = config.agent?.[VISION_AGENT_NAME];
+  config.agent = {
+    ...config.agent,
+    [VISION_AGENT_NAME]: {
+      description: "Analyzes attached images for models that cannot process image input. Use only when the active model lacks vision capabilities.",
+      mode: "subagent",
+      model: `${cfg.providerID}/${cfg.modelID}`,
+      prompt: cfg.prompt,
+      tools: { "*": false },
+      ...existing,
+      permission: {
+        edit: "deny",
+        bash: "deny",
+        webfetch: "deny",
+        ...existing?.permission,
+      },
+    },
   };
 }
 

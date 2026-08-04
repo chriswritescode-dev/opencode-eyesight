@@ -1,8 +1,8 @@
 import type { Plugin } from "@opencode-ai/plugin";
-import type { FilePart, Part } from "@opencode-ai/sdk";
+import type { FilePart, Part, TextPartInput, FilePartInput } from "@opencode-ai/sdk";
 import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
-import { resolveConfig } from "./config";
+import { registerVisionAgent, resolveConfig, VISION_AGENT_NAME } from "./config";
 import { makeCapabilityLookup } from "./capabilities";
 import {
   transcribeMessages,
@@ -52,6 +52,7 @@ export const VisionFallback: Plugin = async (input, options) => {
   };
 
   log("info", "plugin initialized", {
+    visionAgent: VISION_AGENT_NAME,
     visionProviderID: cfg.providerID,
     visionModelID: cfg.modelID,
     mimePrefixes: cfg.mimePrefixes,
@@ -69,17 +70,13 @@ export const VisionFallback: Plugin = async (input, options) => {
         userText.trim().length > 0
           ? `The user's accompanying message is below; tailor your description to help address it.\n\nUser message:\n${userText}`
           : "Describe this image in detail.";
+      const parts: (TextPartInput | FilePartInput)[] = [
+        { type: "text", text: instruction },
+        { type: "file", mime: part.mime, filename: part.filename, url: part.url },
+      ];
       const res = await input.client.session.prompt({
         path: { id: sid },
-        body: {
-          model: { providerID: cfg.providerID, modelID: cfg.modelID },
-          system: cfg.prompt,
-          tools: { "*": false },
-          parts: [
-            { type: "text", text: instruction },
-            { type: "file", mime: part.mime, filename: part.filename, url: part.url },
-          ],
-        },
+        body: { agent: VISION_AGENT_NAME, parts },
       });
       if (res.error || !res.data) throw new Error("vision session prompt failed");
       return messageText(res.data.parts as Part[]);
@@ -90,6 +87,9 @@ export const VisionFallback: Plugin = async (input, options) => {
   };
 
   return {
+    config: async (config) => {
+      registerVisionAgent(config, cfg);
+    },
     "experimental.chat.messages.transform": async (_input, output) => {
       const messages = output.messages as TransformMessage[];
       if (messages.length === 0) return;

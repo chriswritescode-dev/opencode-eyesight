@@ -1,5 +1,12 @@
 import { test, expect } from "bun:test";
-import { parseModel, resolveConfig, DEFAULT_PROMPT } from "../src/config";
+import type { Config } from "@opencode-ai/plugin";
+import {
+  parseModel,
+  registerVisionAgent,
+  resolveConfig,
+  DEFAULT_PROMPT,
+  VISION_AGENT_NAME,
+} from "../src/config";
 
 test("parseModel splits on first slash", () => {
   expect(parseModel("openai/gpt-4o")).toEqual({
@@ -81,6 +88,49 @@ test("resolveConfig prefers prompt over promptFile", async () => {
 
 test("resolveConfig returns undefined when no model resolved", async () => {
   expect(await resolveConfig(undefined, {})).toBeUndefined();
+});
+
+test("registerVisionAgent supplies the default vision agent", async () => {
+  const resolved = await resolveConfig({ model: "openai/gpt-4o" }, {});
+  const config = {} as Config;
+
+  registerVisionAgent(config, resolved!);
+
+  expect(config.agent?.[VISION_AGENT_NAME]).toEqual({
+    description: "Analyzes attached images for models that cannot process image input. Use only when the active model lacks vision capabilities.",
+    mode: "subagent",
+    model: "openai/gpt-4o",
+    prompt: DEFAULT_PROMPT,
+    tools: { "*": false },
+    permission: { edit: "deny", bash: "deny", webfetch: "deny" },
+  });
+});
+
+test("registerVisionAgent preserves user vision-agent overrides", async () => {
+  const resolved = await resolveConfig({ model: "openai/gpt-4o" }, {});
+  const config = {
+    agent: {
+      vision: {
+        model: "custom/vision-model",
+        prompt: "custom prompt",
+        tools: { read: true },
+        permission: { edit: "allow" },
+      },
+      reviewer: { prompt: "review" },
+    },
+  } as Config;
+
+  registerVisionAgent(config, resolved!);
+
+  expect(config.agent?.vision?.model).toBe("custom/vision-model");
+  expect(config.agent?.vision?.prompt).toBe("custom prompt");
+  expect(config.agent?.vision?.tools).toEqual({ read: true });
+  expect(config.agent?.vision?.permission).toEqual({
+    edit: "allow",
+    bash: "deny",
+    webfetch: "deny",
+  });
+  expect(config.agent?.reviewer?.prompt).toBe("review");
 });
 
 test("resolveConfig returns undefined for non-string model option", async () => {

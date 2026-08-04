@@ -114,10 +114,10 @@ function makePromptCaptureClient(
   };
 }
 
-test("non-vision model with image: transcribes via vision model", async () => {
+test("non-vision model with image: transcribes via built-in vision agent", async () => {
   let createCount = 0;
   let deleteCount = 0;
-  let capturedModel: unknown;
+  let capturedBody: any;
 
   const fakeClient = {
     provider: { list: async () => ({ data: providerFixture }) },
@@ -127,7 +127,7 @@ test("non-vision model with image: transcribes via vision model", async () => {
         return { data: { id: `ses_v_${createCount}` } };
       },
       prompt: async (args: any) => {
-        capturedModel = args.body?.model;
+        capturedBody = args.body;
         return {
           data: {
             info: {},
@@ -158,7 +158,10 @@ test("non-vision model with image: transcribes via vision model", async () => {
   expect(replacement.id).toBeDefined();
   expect(createCount).toBe(1);
   expect(deleteCount).toBe(1);
-  expect(capturedModel).toEqual({ providerID: "openai", modelID: "gpt-4o" });
+  expect(capturedBody.agent).toBe("vision");
+  expect(capturedBody.model).toBeUndefined();
+  expect(capturedBody.system).toBeUndefined();
+  expect(capturedBody.tools).toBeUndefined();
 });
 
 test("non-vision model with two images: transcribes both via vision model", async () => {
@@ -417,15 +420,11 @@ test("describe session lifecycle: create, prompt, delete each called once", asyn
   expect((msg.parts[0] as unknown as TextPart).text).toBe("[Vision model description of the attached image:]\ndescribed\n[/Vision model description]");
 });
 
-test("promptFile loads markdown prompt for vision session", async () => {
+test("promptFile supplies the built-in vision agent prompt", async () => {
   const directory = await mkdtemp(join(tmpdir(), "opencode-eyesight-"));
   await writeFile(join(directory, "prompt.md"), "\nDescribe using markdown file.\n");
 
-  let capturedSystem: unknown;
-
-  const fakeClient = makePromptCaptureClient((args) => {
-    capturedSystem = args.body?.system;
-  }, "ses_prompt_file");
+  const fakeClient = makePromptCaptureClient(() => {}, "ses_prompt_file");
 
   try {
     const hooks = await VisionFallback(buildInputWithDirectory(fakeClient, directory), {
@@ -433,30 +432,29 @@ test("promptFile loads markdown prompt for vision session", async () => {
       promptFile: "prompt.md",
     });
 
-    const msg = makeUserMsgParts([makeFilePart()]);
-    const output = { messages: [msg] };
-    await hooks["experimental.chat.messages.transform"]!({}, output as any);
+    const config: any = {};
+    await hooks.config!(config);
 
-    expect(capturedSystem).toBe("Describe using markdown file.");
+    expect(config.agent.vision.prompt).toBe("Describe using markdown file.");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
 });
 
-test("vision session disables all tools (read-only)", async () => {
-  let capturedTools: unknown;
-
-  const fakeClient = makePromptCaptureClient((args) => {
-    capturedTools = args.body?.tools;
-  }, "ses_readonly");
+test("built-in vision agent disables all tools", async () => {
+  const fakeClient = makePromptCaptureClient(() => {}, "ses_readonly");
 
   const hooks = await VisionFallback(buildInput(fakeClient), { model: "openai/gpt-4o" });
+  const config: any = {};
 
-  const msg = makeUserMsgParts([makeFilePart()]);
-  const output = { messages: [msg] };
-  await hooks["experimental.chat.messages.transform"]!({}, output as any);
+  await hooks.config!(config);
 
-  expect(capturedTools).toEqual({ "*": false });
+  expect(config.agent.vision.tools).toEqual({ "*": false });
+  expect(config.agent.vision.permission).toEqual({
+    edit: "deny",
+    bash: "deny",
+    webfetch: "deny",
+  });
 });
 
 // ── Phase 4 helpers ──────────────────────────────────────────────────────────
