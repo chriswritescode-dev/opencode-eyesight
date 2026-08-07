@@ -6,10 +6,26 @@ function matchesMime(a: FilePart, mimePrefixes: string[]): boolean {
   return mimePrefixes.some((p) => a.mime.startsWith(p));
 }
 
+export function errorMessage(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === "string") return e;
+  if (e && typeof e === "object") {
+    const msg = (e as { message?: unknown }).message;
+    if (typeof msg === "string" && msg.length > 0) return msg;
+    const data = (e as { data?: unknown }).data;
+    if (data && typeof data === "object") {
+      const dataMsg = (data as { message?: unknown }).message;
+      if (typeof dataMsg === "string" && dataMsg.length > 0) return dataMsg;
+    }
+    const name = (e as { name?: unknown }).name;
+    if (typeof name === "string" && name.length > 0) return name;
+  }
+  return String(e);
+}
+
 async function describeOrError(file: FilePart, userText: string, describe: DescribeFn): Promise<string> {
   return describe(file, userText).catch(
-    (e: unknown) =>
-      `[Image "${file.filename ?? "image"}" could not be transcribed: ${e instanceof Error ? e.message : String(e)}]`,
+    (e: unknown) => `[Image "${file.filename ?? "image"}" could not be transcribed: ${errorMessage(e)}]`,
   );
 }
 

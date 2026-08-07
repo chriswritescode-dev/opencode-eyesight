@@ -9,6 +9,7 @@ import {
   collectTranscriptionTargets,
   currentRequestMessages,
   messageText,
+  errorMessage,
   getActiveModel,
   type TransformMessage,
 } from "./transform";
@@ -78,7 +79,9 @@ export const VisionFallback: Plugin = async (input, options) => {
         path: { id: sid },
         body: { agent: VISION_AGENT_NAME, parts },
       });
-      if (res.error || !res.data) throw new Error("vision session prompt failed");
+      if (res.error) throw new Error(errorMessage(res.error));
+      if (!res.data) throw new Error("vision session prompt failed");
+      if (res.data.info.error) throw new Error(errorMessage(res.data.info.error));
       return messageText(res.data.parts as Part[]);
     } finally {
       internalSessions.delete(sid);

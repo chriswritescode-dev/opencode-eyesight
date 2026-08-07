@@ -521,6 +521,41 @@ function makeAssistantMsgWithTool(
 
 // ── Phase 4: experimental.chat.messages.transform ────────────────────────────
 
+test("vision prompt returns info.error: surfaces error in description instead of empty block", async () => {
+  const fakeClient = {
+    provider: { list: async () => ({ data: providerFixture }) },
+    session: {
+      create: async () => ({ data: { id: "ses_v_error" } }),
+      prompt: async () => ({
+        data: {
+          info: {
+            error: {
+              name: "APIError",
+              data: { message: "Provider returned error", isRetryable: false },
+            },
+          },
+          parts: [{ type: "retry", error: { data: { message: "Provider returned error" } } }],
+        },
+      }),
+      delete: async () => ({ data: true }),
+    },
+    app: { log: async () => {} },
+  };
+
+  const hooks = await VisionFallback(buildInput(fakeClient), {
+    model: "openai/gpt-4o",
+  });
+  const msg = makeUserMsgParts([makeFilePart({ filename: "broken.png" })]);
+  const output = { messages: [msg] };
+
+  await hooks["experimental.chat.messages.transform"]!({}, output as any);
+
+  const replacement = msg.parts[0] as TextPart;
+  expect(replacement.type).toBe("text");
+  expect(replacement.text).toContain("could not be transcribed: Provider returned error");
+  expect(replacement.text).not.toContain("[/Vision model description]\n[/Vision model description]");
+});
+
 test("transform: text-only model with tool image attachment transcribes", async () => {
   let createCount = 0;
   let deleteCount = 0;

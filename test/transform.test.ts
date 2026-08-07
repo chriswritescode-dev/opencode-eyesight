@@ -5,6 +5,7 @@ import {
   transcribeMessages,
   collectTranscriptionTargets,
   getActiveModel,
+  errorMessage,
   type TransformMessage,
   type DescribeFn,
 } from "../src/transform";
@@ -483,6 +484,40 @@ test("transcribeMessages scopes each tool image to its nearest preceding user me
   expect(count).toBe(2);
   expect(captured.get("tool-img-a")).toBe("investigate bug A");
   expect(captured.get("tool-img-b")).toBe("now do bug B");
+});
+
+// ── errorMessage ────────────────────────────────────────────────────
+
+test("errorMessage returns Error instance message", () => {
+  expect(errorMessage(new Error("boom"))).toBe("boom");
+});
+
+test("errorMessage returns string input unchanged", () => {
+  expect(errorMessage("plain failure")).toBe("plain failure");
+});
+
+test("errorMessage extracts data.message from opencode-style error object", () => {
+  expect(errorMessage({ name: "APIError", data: { message: "Provider returned error", isRetryable: false } })).toBe(
+    "Provider returned error",
+  );
+});
+
+test("errorMessage falls back to top-level message when present", () => {
+  expect(errorMessage({ message: "bad request" })).toBe("bad request");
+});
+
+test("errorMessage returns String(e) for opaque objects", () => {
+  expect(errorMessage({ foo: "bar" })).toBe("[object Object]");
+  expect(errorMessage(undefined)).toBe("undefined");
+});
+
+test("errorMessage returns String(e) when data.message is not a string", () => {
+  expect(errorMessage({ name: "MessageOutputLengthError", data: { tokens: 100 } })).toBe("MessageOutputLengthError");
+});
+
+test("errorMessage falls back to name for message-less errors and empty messages", () => {
+  expect(errorMessage({ name: "BadRequest", data: { message: "" } })).toBe("BadRequest");
+  expect(errorMessage({ name: "UnknownError" })).toBe("UnknownError");
 });
 
 // ── getActiveModel ──────────────────────────────────────────────────
