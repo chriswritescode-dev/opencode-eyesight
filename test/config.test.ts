@@ -1,5 +1,6 @@
 import { test, expect } from "bun:test";
 import type { Config } from "@opencode-ai/plugin";
+import type { AgentConfig } from "@opencode-ai/sdk";
 import {
   parseModel,
   registerVisionAgent,
@@ -102,7 +103,12 @@ test("registerVisionAgent supplies the default vision agent", async () => {
     model: "openai/gpt-4o",
     prompt: DEFAULT_PROMPT,
     tools: { "*": false },
-    permission: { edit: "deny", bash: "deny", webfetch: "deny" },
+    permission: {
+      edit: "deny",
+      bash: "deny",
+      webfetch: "deny",
+      question: "deny",
+    } as AgentConfig["permission"],
   });
 });
 
@@ -129,7 +135,8 @@ test("registerVisionAgent preserves user vision-agent overrides", async () => {
     edit: "allow",
     bash: "deny",
     webfetch: "deny",
-  });
+    question: "deny",
+  } as AgentConfig["permission"]);
   expect(config.agent?.reviewer?.prompt).toBe("review");
 });
 

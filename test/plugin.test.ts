@@ -454,6 +454,7 @@ test("built-in vision agent disables all tools", async () => {
     edit: "deny",
     bash: "deny",
     webfetch: "deny",
+    question: "deny",
   });
 });
 

@@ -1,4 +1,5 @@
 import type { Config } from "@opencode-ai/plugin";
+import type { AgentConfig } from "@opencode-ai/sdk";
 
 export interface VisionFallbackConfig {
   providerID: string;
@@ -50,6 +51,13 @@ export async function resolveConfig(
 
 export function registerVisionAgent(config: Config, cfg: VisionFallbackConfig): void {
   const existing = config.agent?.[VISION_AGENT_NAME];
+  const permission: AgentConfig["permission"] & { question?: "ask" | "allow" | "deny" } = {
+    edit: "deny",
+    bash: "deny",
+    webfetch: "deny",
+    question: "deny",
+    ...existing?.permission,
+  };
   config.agent = {
     ...config.agent,
     [VISION_AGENT_NAME]: {
@@ -59,12 +67,7 @@ export function registerVisionAgent(config: Config, cfg: VisionFallbackConfig): 
       prompt: cfg.prompt,
       tools: { "*": false },
       ...existing,
-      permission: {
-        edit: "deny",
-        bash: "deny",
-        webfetch: "deny",
-        ...existing?.permission,
-      },
+      permission,
     },
   };
 }
