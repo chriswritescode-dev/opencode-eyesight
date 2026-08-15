@@ -103,12 +103,7 @@ test("registerVisionAgent supplies the default vision agent", async () => {
     model: "openai/gpt-4o",
     prompt: DEFAULT_PROMPT,
     tools: { "*": false },
-    permission: {
-      edit: "deny",
-      bash: "deny",
-      webfetch: "deny",
-      question: "deny",
-    } as AgentConfig["permission"],
+    permission: { "*": "deny" } as AgentConfig["permission"],
   });
 });
 
@@ -132,11 +127,10 @@ test("registerVisionAgent preserves user vision-agent overrides", async () => {
   expect(config.agent?.vision?.prompt).toBe("custom prompt");
   expect(config.agent?.vision?.tools).toEqual({ read: true });
   expect(config.agent?.vision?.permission).toEqual({
+    "*": "deny",
     edit: "allow",
-    bash: "deny",
-    webfetch: "deny",
-    question: "deny",
   } as AgentConfig["permission"]);
+  expect(Object.keys(config.agent!.vision!.permission!)).toEqual(["*", "edit"]);
   expect(config.agent?.reviewer?.prompt).toBe("review");
 });
 

@@ -51,13 +51,10 @@ export async function resolveConfig(
 
 export function registerVisionAgent(config: Config, cfg: VisionFallbackConfig): void {
   const existing = config.agent?.[VISION_AGENT_NAME];
-  const permission: AgentConfig["permission"] & { question?: "ask" | "allow" | "deny" } = {
-    edit: "deny",
-    bash: "deny",
-    webfetch: "deny",
-    question: "deny",
+  const permission = {
+    "*": "deny",
     ...existing?.permission,
-  };
+  } as AgentConfig["permission"];
   config.agent = {
     ...config.agent,
     [VISION_AGENT_NAME]: {

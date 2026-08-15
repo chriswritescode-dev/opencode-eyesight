@@ -450,12 +450,7 @@ test("built-in vision agent disables all tools", async () => {
   await hooks.config!(config);
 
   expect(config.agent.vision.tools).toEqual({ "*": false });
-  expect(config.agent.vision.permission).toEqual({
-    edit: "deny",
-    bash: "deny",
-    webfetch: "deny",
-    question: "deny",
-  });
+  expect(config.agent.vision.permission).toEqual({ "*": "deny" });
 });
 
 // ── Phase 4 helpers ──────────────────────────────────────────────────────────
