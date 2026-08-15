@@ -102,7 +102,6 @@ test("registerVisionAgent supplies the default vision agent", async () => {
     mode: "subagent",
     model: "openai/gpt-4o",
     prompt: DEFAULT_PROMPT,
-    tools: { "*": false },
     permission: { "*": "deny" } as AgentConfig["permission"],
   });
 });

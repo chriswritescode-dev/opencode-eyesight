@@ -1,5 +1,6 @@
 import { test, expect } from "bun:test";
 import { VisionFallback } from "../src/index";
+import { VISION_FALLBACK_NOTICE } from "../src/config";
 import type { Part, FilePart, TextPart, UserMessage, AssistantMessage, ToolPart, Message } from "@opencode-ai/sdk";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -441,7 +442,7 @@ test("promptFile supplies the built-in vision agent prompt", async () => {
   }
 });
 
-test("built-in vision agent disables all tools", async () => {
+test("built-in vision agent denies every tool through wildcard permission", async () => {
   const fakeClient = makePromptCaptureClient(() => {}, "ses_readonly");
 
   const hooks = await VisionFallback(buildInput(fakeClient), { model: "openai/gpt-4o" });
@@ -449,8 +450,70 @@ test("built-in vision agent disables all tools", async () => {
 
   await hooks.config!(config);
 
-  expect(config.agent.vision.tools).toEqual({ "*": false });
   expect(config.agent.vision.permission).toEqual({ "*": "deny" });
+  expect(config.agent.vision.tools).toBeUndefined();
+});
+
+test("system transform tells a text-only model that images are transcribed", async () => {
+  const fakeClient = makePromptCaptureClient(() => {}, "ses_notice");
+  const hooks = await VisionFallback(buildInput(fakeClient), { model: "openai/gpt-4o" });
+
+  const output = { system: ["base prompt"] };
+  await hooks["experimental.chat.system.transform"]!(
+    { sessionID: "ses_user", model: { providerID: "zai", id: "glm-4.6" } as any },
+    output,
+  );
+
+  expect(output.system).toHaveLength(2);
+  expect(output.system[1]).toBe(VISION_FALLBACK_NOTICE);
+});
+
+test("system transform stays silent for image-capable and vision models", async () => {
+  const fakeClient = makePromptCaptureClient(() => {}, "ses_v");
+  const hooks = await VisionFallback(buildInput(fakeClient), { model: "openai/gpt-4o" });
+  const transform = hooks["experimental.chat.system.transform"]!;
+
+  const capable = { system: [] as string[] };
+  await transform(
+    { sessionID: "ses_user", model: { providerID: "anthropic", id: "claude-3" } as any },
+    capable,
+  );
+  expect(capable.system).toEqual([]);
+
+  const visionModel = { system: [] as string[] };
+  await transform(
+    { sessionID: "ses_user", model: { providerID: "openai", id: "gpt-4o" } as any },
+    visionModel,
+  );
+  expect(visionModel.system).toEqual([]);
+});
+
+test("internal vision session is created with a wildcard deny ruleset", async () => {
+  let capturedCreate: any;
+
+  const fakeClient = {
+    provider: { list: async () => ({ data: providerFixture }) },
+    session: {
+      create: async (args: any) => {
+        capturedCreate = args;
+        return { data: { id: "ses_deny" } };
+      },
+      prompt: async () => ({
+        data: { info: {}, parts: [{ type: "text", text: "described" }] },
+      }),
+      delete: async () => ({ data: true }),
+    },
+    app: { log: async () => {} },
+  };
+
+  const hooks = await VisionFallback(buildInput(fakeClient), { model: "openai/gpt-4o" });
+  const output = { messages: [makeUserMsgParts([makeFilePart()])] };
+
+  await hooks["experimental.chat.messages.transform"]!({}, output as any);
+
+  expect(capturedCreate.body.permission).toEqual([
+    { permission: "*", pattern: "*", action: "deny" },
+  ]);
 });
 
 // ── Phase 4 helpers ──────────────────────────────────────────────────────────
@@ -781,5 +844,6 @@ test("vision prompt includes the user's accompanying message", async () => {
   );
   expect(textPart).toBeDefined();
   expect(textPart!.text).toContain("What is the hex color of the button?");
-  expect(textPart!.text).toContain("tailor your description");
+  expect(textPart!.text).toContain("context only");
+  expect(textPart!.text).toContain("never carry it out");
 });
